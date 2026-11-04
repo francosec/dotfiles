@@ -1,0 +1,21 @@
+choice=$(printf "Edit Files\nSearch Files\nOpen Dotfiles Path\nSelect Wallpaper\nSelect Audio Output\nSelect Microphone Output\nPhone Mirror\nWi-Fi\nWebcam\nBluetooth\nVPN\nCopy Emoji\nOpen Clipboard\nNight Mode\nShow System Keybinds\nAndroid Mount" | dmenu -l 15 -p "DCENTRAL")
+
+case "$choice" in
+    "Edit Files") ~/.local/bin/dfiles ;;
+    "Search Files") ~/.local/bin/dfind ;;
+    "Open Dotfiles Path") ~/.local/bin/dots ;;
+    "Select Wallpaper") ~/.local/bin/wg ;;
+    "Select Audio Output") ~/.local/bin/soundshift ;;
+    "Select Microphone Output") ~/.local/bin/micshift ;;
+    "Phone Mirror") ~/.local/bin/phoneview ;;
+    "Wi-Fi") ~/.local/bin/dwifi ;;
+    "Webcam") ~/.local/bin/webcam ;;
+    "Bluetooth") ~/.local/bin/bluetooth ;;
+    "Copy Emoji") ~/.local/bin/emoji ;;
+    "Open Clipboard") clipmenu ;;
+    "VPN") ~/.local/bin/mullvpn ;;
+    "Night Mode") ~/.local/bin/nightmode ;;
+    "Show System Keybinds") ~/.local/bin/keybinds ;;
+    "Android Mount") ~/.local/bin/droidmount ;;
+    *) exit 0 ;;
+esac
