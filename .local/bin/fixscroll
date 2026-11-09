@@ -3,8 +3,7 @@
 while true; do
     for id in $(xinput list | awk -v p="$SCROLL_INVERTIDO" '
     /slave  pointer/ &&
-    $0 ~ p
-    {
+    $0 ~ p {
         match($0,/id=[0-9]+/)
         print substr($0,RSTART+3,RLENGTH-3)
     }'); do
