@@ -1,0 +1,8 @@
+if ! pgrep -x xautolock >/dev/null; then
+    # A tela não apaga sozinha (nem bloqueada): só por comando. O bloqueio automático mostra os painéis.
+    xset s off; xset dpms 0 0 0
+    xautolock -detectsleep -time 10 \
+        -locker "bash -c 'pgrep -x xsecurelock >/dev/null || betterlockscreen -l'" \
+        -notify 15 \
+        -notifier "notify-send 'LOCK' 'Screen will lock in 15 seconds. Press any key to cancel.'" &
+fi

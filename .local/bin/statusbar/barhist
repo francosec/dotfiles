@@ -1,0 +1,8 @@
+#!/bin/sh
+# barhist nome valor: guarda o valor no histórico em RAM que o barpop desenha no gráfico.
+# Fica com os últimos 60 (5 min com o bloco rodando a cada 5 s).
+d="${XDG_RUNTIME_DIR:-/tmp}/barhist"; f="$d/$1"
+[ -d "$d" ] || mkdir -p "$d"
+echo "$2" >> "$f"
+[ "$(wc -l < "$f")" -gt 90 ] && tail -n 60 "$f" > "$f.t" && mv "$f.t" "$f"
+exit 0

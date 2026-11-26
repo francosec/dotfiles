@@ -2,6 +2,6 @@ dte="$(date +"%d/%m  %H:%M")"
 echo -e "󰸗 $dte"
 
 case $BLOCK_BUTTON in
-    1) calendar ;;
+    1|3) setsid -f barpop data >/dev/null 2>&1 ;;
     6) st -e nvim "$0" ;;
 esac

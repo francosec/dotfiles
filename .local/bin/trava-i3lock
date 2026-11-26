@@ -1,0 +1,54 @@
+#!/bin/sh
+# Tela de bloqueio "minimal central": relógio grande e data dentro de um anel fino, no
+# monitor principal; os outros ficam pretos (imagem gerada pelo lockwall).
+# O betterlockscreen chama este script no lugar do i3lock (i3lockcolor_bin no
+# ~/.config/betterlockscreen/betterlockscreenrc); os argumentos dele são ignorados.
+
+img="$HOME/.cache/trava.png"
+[ -f "$img" ] || img="$HOME/.cache/betterlockscreen-canvas.png"
+
+# Cores do pywal; sem elas, cinza claro.
+foreground='#e2e2e2'
+[ -f "$HOME/.cache/wal/colors.sh" ] && . "$HOME/.cache/wal/colors.sh"
+fg=${foreground#\#}
+erro=e06c75
+fonte="Adwaita Sans"   # data e tempo: legível de longe (cama)
+fino="Adwaita Sans"   # relógio (escolhida em 09/11/2026)
+
+# Tempo (wttr.in, local pelo IP), guardado 30 min; sem rede usa o último ou some.
+cache="$HOME/.cache/trava-clima"
+if [ -z "$(find "$cache" -mmin -30 2>/dev/null)" ]; then
+  LAT= LON=; [ -f "$HOME/.config/trava-local" ] && . "$HOME/.config/trava-local"
+  novo=$(curl -sf -m 3 "https://wttr.in/${LAT:+$LAT,$LON}?lang=pt&format=%l|%t|%C|%h|%w") && [ -n "$novo" ] && echo "$novo" > "$cache"
+fi
+clima=""
+if IFS='|' read -r lugar temp cond umid vento < "$cache" 2>/dev/null && [ -n "$temp" ]; then
+  hora=$(date +%H); noite=0; [ "$hora" -ge 18 ] || [ "$hora" -lt 6 ] && noite=1
+  case "$(echo "$cond" | tr 'A-ZÁÉÍÓÚÇ' 'a-záéíóúç')" in
+    *trovo*) ic=󰖓 ;; *chuv*|*garoa*|*aguaceiro*) ic=󰖗 ;; *neve*) ic=󰖘 ;;
+    *nebl*|*névoa*|*bruma*) ic=󰖑 ;; *parcial*) [ $noite = 1 ] && ic=󰼱 || ic=󰖕 ;;
+    *nuve*|*nublado*|*encoberto*) ic=󰖐 ;; *) [ $noite = 1 ] && ic=󰖔 || ic=󰖙 ;;
+  esac
+  clima="${temp#+}  ·  $cond  ·  umidade $umid  ·  vento $(echo "$vento" | sed 's/[^0-9]*\([0-9]*\).*/\1/') km/h"
+fi
+
+# Índice Xinerama do monitor principal (1 = tela 2 em HDMI-1, testado em 09/11/2026).
+tela=${TRAVA_TELA:-1}
+
+exec i3lock -n -i "$img" -S "$tela" \
+  --ignore-empty-password --pass-media-keys --pass-volume-keys \
+  --indicator --clock --force-clock \
+  --ind-pos="x+w/2:y+h/2" --radius=380 --ring-width=3 \
+  --inside-color=00000000 --insidever-color=00000000 --insidewrong-color=00000000 \
+  --ring-color="${fg}40" --ringver-color="${fg}90" --ringwrong-color="${erro}ff" \
+  --line-color=00000000 --separator-color=00000000 \
+  --keyhl-color="${fg}ff" --bshl-color="${erro}cc" \
+  --time-str="%H:%M" --time-font="$fino" --time-size=240 --time-color="${fg}ff" \
+  --time-pos="ix:iy+30" \
+  --date-str="%A, %d de %B" --date-font="$fonte" --date-size=46 --date-color="${fg}e0" \
+  --date-pos="tx:ty+90" \
+  --greeter-text="$clima" --greeter-font="$fonte" --greeter-size=40 \
+  --greeter-color="${fg}f0" --greeter-pos="ix:iy+470" \
+  --verif-text="" --noinput-text="" --lock-text="" --lockfailed-text="falha ao bloquear" \
+  --wrong-text="senha incorreta" --wrong-font="$fonte" --wrong-size=30 \
+  --wrong-color="${erro}ff" --wrong-pos="ix:iy+525"

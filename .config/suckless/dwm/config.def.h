@@ -34,6 +34,7 @@ static char normfgcolor[]                 = "#bbbbbb";
 static char selfgcolor[]                  = "#eeeeee";
 static char selbordercolor[]              = "#005577";
 static char selbgcolor[]                  = "#005577";
+static char dimfgcolor[]                  = "#6f706f"; /* separadores | do status, mais apagados */
 static const unsigned int baralpha = 0xAA;
 static const unsigned int borderalpha = OPAQUE;
 static const char *colors[][3] = {
@@ -41,6 +42,7 @@ static const char *colors[][3] = {
   [SchemeNorm]     = { normfgcolor, normbgcolor, normbordercolor },
   [SchemeSel]      = { selfgcolor,  selbgcolor,  normbordercolor },
   [SchemeHid]      = { normfgcolor, normbgcolor, normbordercolor },
+  [SchemeDim]      = { dimfgcolor,  selbgcolor,  normbordercolor },
 };
 
 static const unsigned int alphas[][3]      = {
@@ -48,6 +50,7 @@ static const unsigned int alphas[][3]      = {
   [SchemeNorm]     = { OPAQUE, baralpha, borderalpha },
   [SchemeSel]      = { OPAQUE, baralpha, borderalpha },
   [SchemeHid]      = { OPAQUE, baralpha, borderalpha },
+  [SchemeDim]      = { OPAQUE, baralpha, borderalpha },
 };
 
 static const XPoint stickyicon[]    = { {0,0}, {4,0}, {4,8}, {2,6}, {0,8}, {0,0} }; /* represents the icon as an array of vertices */
@@ -94,15 +97,16 @@ static const Rule rules[] = {
   * WM_NAME(STRING) = title
   */
   /* class                     instance                  title            tags mask   iscentered  isfloating  isterminal  noswallow  monitor  float x,y,w,h  floatborderpx*/
-  { "Emacs",                     NULL,                    NULL,              1<<0,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
-  { "firefox",                   NULL,                    NULL,              1<<1,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
-  { "firefox",                   NULL,               "Library",                 0,        1,          1,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
-  { "qutebrowser",               NULL,                    NULL,              1<<1,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "Emacs",                     NULL,                    NULL,                 0,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "Chromium",                  NULL,                    NULL,                 0,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "qutebrowser",               NULL,                    NULL,                 0,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
   { "Sxiv",                      NULL,                    NULL,                 0,        1,          1,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
-  { "steam",                     NULL,                    NULL,              1<<2,        0,          1,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
-  { "steam",                     NULL,                 "Steam",              1<<2,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
-  { "TelegramDesktop",           NULL,                    NULL,              1<<3,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
-  { "qBittorrent",               NULL,                    NULL,              1<<4,        1,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "steam",                     NULL,                    NULL,                 0,        0,          1,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "steam",                     NULL,                 "Steam",                 0,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "Brave-browser",             "brave-browser",         NULL,                 0,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "Brave-browser",             "web.whatsapp.com",      NULL,                 0,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "TelegramDesktop",           NULL,                    NULL,                 0,        0,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
+  { "qBittorrent",               NULL,                    NULL,                 0,        1,          0,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
   { "Blueman-manager",           NULL,     "Bluetooth Devices",                 0,        1,          1,          0,         -1,       -1,     -1,-1,-1,-1,        -1      },
   { "St",                        NULL,                    NULL,                 0,        1,          0,          1,          0,       -1,     -1,-1,-1,-1,        -1      },
   { "Pcmanfm",                   NULL,                    NULL,                 0,        0,          0,          1,          0,       -1,     -1,-1,-1,-1,        -1      },
@@ -166,7 +170,7 @@ static char dmenumon[2]             =   "0"; /* component of dmenucmd, manipulat
 static const char *dmenucmd[]       =   { "dmenu_run", "-l", "15", NULL };
 static const char *termcmd[]        =   { "st", NULL };
 static const char *layoutmenu_cmd   =     "layoutmenu";
-static const char *browser[]        =   { "firefox", NULL };
+static const char *browser[]        =   { "brave", NULL };
 
 /* Xresources preferences to load at startup */
 ResourcePref resources[] = {
@@ -190,23 +194,38 @@ static const Key keys[] = {
   { MODKEY|ControlMask,                   XK_s,                           rioresize,                 {0} },
   { MODKEY,                               XK_F2,                          spawn,                     {.v = browser } },
   { MODKEY,                               XK_F3,                          spawn,                     SHCMD("Telegram -l") },
+  { MODKEY,                               XK_w,                           spawn,                     SHCMD("brave --app=https://web.whatsapp.com") },
   { 0,                                    XK_Print,                       spawn,                     SHCMD("screenshot") },
-  { MODKEY,                               XK_Print,                       spawn,                     SHCMD("flameshot full") },
+  { MODKEY,                               XK_Print,                       spawn,                     SHCMD("print-tela") },
+  { ShiftMask,                            XK_Print,                       spawn,                     SHCMD("print-texto") },
   { MODKEY,                               XK_F11,                         spawn,                     SHCMD("betterlockscreen -l") },
+  /* Super+Alt+1/2/3: liga/desliga notebook, tela 2, tela 3 (~/.local/bin/tela-desliga) */
+  { MODKEY|Mod1Mask,                      XK_1,                           spawn,                     SHCMD("tela-desliga 1") },
+  { MODKEY|Mod1Mask,                      XK_2,                           spawn,                     SHCMD("tela-desliga 2") },
+  { MODKEY|Mod1Mask,                      XK_3,                           spawn,                     SHCMD("tela-desliga 3") },
+  /* Super+Alt+Shift+1/2/3: player de vinil no notebook, tela 2, tela 3; Super+Alt+V: na tela do cursor (~/.local/bin/vinil) */
+  { MODKEY|Mod1Mask|ShiftMask,            XK_1,                           spawn,                     SHCMD("vinil 1") },
+  { MODKEY|Mod1Mask|ShiftMask,            XK_2,                           spawn,                     SHCMD("vinil 2") },
+  { MODKEY|Mod1Mask|ShiftMask,            XK_3,                           spawn,                     SHCMD("vinil 3") },
+  { MODKEY|Mod1Mask,                      XK_v,                           spawn,                     SHCMD("vinil cursor") },
+  { MODKEY|Mod1Mask,                      XK_m,                           spawn,                     SHCMD("vinil-som") },
+  { MODKEY,                               XK_g,                           spawn,                     SHCMD("picom-alternar") },
   { 0,                                    XF86XK_AudioRaiseVolume,        spawn,                     SHCMD("statusvolume up") },
   { 0,                                    XF86XK_AudioLowerVolume,        spawn,                     SHCMD("statusvolume down") },
   { 0,                                    XF86XK_AudioMute,               spawn,                     SHCMD("statusvolume mute") },
   { Mod1Mask,                             XK_F2,                          spawn,                     SHCMD("statusmic down") },
   { Mod1Mask,                             XK_F3,                          spawn,                     SHCMD("statusmic up") },
   { Mod1Mask,                             XK_z,                           spawn,                     SHCMD("statusmic mute") },
-  /* Ctrl+Alt como AltGr, igual ao Windows: aperta AltGr + a tecla do layout do teclado (/ ? \ |).
+  /* Alt+Q e Alt+W: / e ? no layout do teclado.
    * Não usar xdotool type: ele escolhe a tecla errada para / e | neste layout. */
-  { ControlMask|Mod1Mask,                 XK_q,                           spawn,                     SHCMD("xdotool key --clearmodifiers ISO_Level3_Shift+q") },
-  { ControlMask|Mod1Mask,                 XK_w,                           spawn,                     SHCMD("xdotool key --clearmodifiers ISO_Level3_Shift+w") },
+  { Mod1Mask,                             XK_q,                           spawn,                     SHCMD("xdotool key --clearmodifiers ISO_Level3_Shift+q") },
+  { Mod1Mask,                             XK_w,                           spawn,                     SHCMD("xdotool key --clearmodifiers ISO_Level3_Shift+w") },
   { ControlMask|Mod1Mask,                 XK_z,                           spawn,                     SHCMD("xdotool key --clearmodifiers ISO_Level3_Shift+z") },
   { ControlMask|Mod1Mask|ShiftMask,       XK_z,                           spawn,                     SHCMD("xdotool key --clearmodifiers ISO_Level3_Shift+shift+z") },
   { 0,                                    XF86XK_MonBrightnessUp,         spawn,                     SHCMD("statusbrightness up") },
   { 0,                                    XF86XK_MonBrightnessDown,       spawn,                     SHCMD("statusbrightness down") },
+  { MODKEY,                               XK_Up,                          spawn,                     SHCMD("statusbrightness up") },
+  { MODKEY,                               XK_Down,                        spawn,                     SHCMD("statusbrightness down") },
   { 0,                                    XF86XK_AudioPlay,               spawn,                     SHCMD("playerctlstatus play-pause") },
   { 0,                                    XF86XK_AudioNext,               spawn,                     SHCMD("playerctlstatus next") },
   { 0,                                    XF86XK_AudioPrev,               spawn,                     SHCMD("playerctlstatus previous") },
@@ -258,7 +277,6 @@ static const Key keys[] = {
   { Mod1Mask|ControlMask|ShiftMask,       XK_Down,                        moveresizeedge,            {.v = "B"} },
   { Mod1Mask|ControlMask|ShiftMask,       XK_Left,                        moveresizeedge,            {.v = "L"} },
   { Mod1Mask|ControlMask|ShiftMask,       XK_Right,                       moveresizeedge,            {.v = "R"} },
-  { MODKEY|ShiftMask,                     XK_Return,                      zoom,                      {0} },
   { MODKEY,                               XK_Tab,                         view,                      {0} },
   { MODKEY|ShiftMask,                     XK_q,                           killclient,                {0} },
   { MODKEY,                               XK_t,                           setlayout,                 {.v = &layouts[0]} },
@@ -272,8 +290,8 @@ static const Key keys[] = {
   { MODKEY,                               XK_comma,                       scratchpad_show,           {0} },
   { MODKEY|ShiftMask,                     XK_comma,                       scratchpad_hide,           {0} },
   { MODKEY,                               XK_period,                      scratchpad_remove,         {0} },
-  { MODKEY|ShiftMask,                     XK_comma,                       tagmon,                    {.i = -1 } },
-  { MODKEY|ShiftMask,                     XK_period,                      tagmon,                    {.i = +1 } },
+  { MODKEY|Mod1Mask,                      XK_Left,                        tagmon,                    {.i = -1 } },
+  { MODKEY|Mod1Mask,                      XK_Right,                       tagmon,                    {.i = +1 } },
   { MODKEY|ControlMask,                   XK_Left,                        focusmon,                  {.i = -1 } },
   { MODKEY|ControlMask,                   XK_Right,                       focusmon,                  {.i = +1 } },
   { MODKEY|ShiftMask,                     XK_m,                           spawn,                     SHCMD("monitores") },

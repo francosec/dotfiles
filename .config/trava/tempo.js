@@ -1,0 +1,107 @@
+// Tempo da tela de bloqueio: ícones com volume (degradê, luz e sombra) e uma camada de
+// ambiente que reage à condição real (chuva caindo, nuvens passando, relâmpagos, névoa).
+// Só transform/opacity nas animações: a GPU faz quase de graça.
+(() => {
+  const CHUVA = [176, 263, 266, 281, 284, 293, 296, 299, 302, 305, 308, 311, 314, 353, 356, 359];
+  const TROVOADA = [200, 386, 389, 392, 395];
+  const NEVOA = [143, 248, 260];
+  const tipo = c => c === 113 ? 'limpo' : c === 116 ? 'parcial' : TROVOADA.includes(c) ? 'trovoada'
+    : NEVOA.includes(c) ? 'nevoa' : CHUVA.includes(c) ? 'chuva' : c >= 179 && c !== 200 ? 'neve' : 'nublado';
+  const forte = c => [305, 308, 356, 359, 389, 395].includes(c);
+
+  // Ícones minimalistas de traço (24x24), cor do texto, com animação leve.
+  const SOL = '<g class="t-raios"><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g><circle cx="12" cy="12" r="4.2"/>';
+  const LUA = '<path class="t-lua" d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>';
+  const NUVEM = '<path class="t-nuvem" d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.6A3.3 3.3 0 0 0 7 18z"/>';
+  const NUVEM_ALTA = '<path class="t-nuvem" d="M7 15h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.6A3.3 3.3 0 0 0 7 15z"/>';
+
+  window.iconeTempo = function (c, noite) {
+    const t = tipo(c), ceu = noite ? LUA : SOL;
+    let corpo = NUVEM;
+    if (t === 'limpo') corpo = ceu;
+    else if (t === 'parcial') corpo = `<g transform="translate(-3 -4) scale(.75)">${ceu}</g>${NUVEM}`;
+    else if (t === 'trovoada') corpo = NUVEM_ALTA + '<path class="t-raio" d="M12.5 15l-2 4h3l-2 4"/>';
+    else if (t === 'nevoa') corpo = '<path class="t-nevoa" d="M4 9h16M3 13h18M5 17h14"/>';
+    else if (t === 'chuva') corpo = NUVEM_ALTA + [8, 12, 16].map((x, i) => `<path class="t-gota" style="--d:${i * .45}s" d="M${x} 18v2"/>`).join('');
+    else if (t === 'neve') corpo = NUVEM_ALTA + [8, 12, 16].map((x, i) => `<path class="t-floco" style="--d:${i * .8}s" d="M${x} 19h.01"/>`).join('');
+    return `<svg class="icone t-${t}" viewBox="0 0 24 24">${corpo}</svg>`;
+  };
+
+  // ── Ambiente de tela cheia conforme o tempo agora.
+  // Textura de chuva: riscos verticais em posições pseudoaleatórias; o container gira 12°.
+  const texturaChuva = (w, h, n, semente) => {
+    let s = semente, r = () => (s = (s * 9301 + 49297) % 233280) / 233280, linhas = '';
+    for (let i = 0; i < n; i++) {
+      const x = (r() * w).toFixed(1), y = (r() * h).toFixed(1), c = (45 + r() * 50).toFixed(1), o = (0.25 + r() * 0.45).toFixed(2);
+      // desenha também a cópia deslocada de h para a emenda vertical ficar contínua
+      for (const dy of [0, -h]) linhas += `<line x1="${x}" y1="${(+y + dy).toFixed(1)}" x2="${x}" y2="${(+y + dy + +c).toFixed(1)}" stroke="%23d4e9ff" stroke-opacity="${o}" stroke-width="1.3" stroke-linecap="round"/>`;
+    }
+    return `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}'>${linhas.replace(/"/g, "'")}</svg>")`;
+  };
+  // ?chuva=N: riscos na camada de perto (a de longe usa ~1,6×). Estudo de desempenho.
+  const RISCOS = +(new URLSearchParams(location.search).get('chuva') || 3);
+  document.documentElement.style.setProperty('--chuva-perto', texturaChuva(260, 360, RISCOS, 7));
+  document.documentElement.style.setProperty('--chuva-longe', texturaChuva(200, 280, Math.round(RISCOS * 1.5), 13));
+
+  window.ambienteTempo = function (c, alvo, chuvaLocal = true) {
+    // A previsão pode indicar garoa na região, mas a animação só entra quando
+    // o radar confirmou chuva sobre a coordenada exata da casa.
+    const previsto = tipo(c), t = !chuvaLocal && ['chuva', 'trovoada'].includes(previsto) ? 'nublado' : previsto;
+    document.body.dataset.tempo = t;
+    let html = '';
+    if (['chuva', 'trovoada'].includes(t)) {
+      // Chuva como textura: 2 camadas que deslizam (perto/rápida e longe/lenta). Antes eram dezenas de
+      // elementos, um por gota, e cada um virava uma camada da GPU.
+      const intensa = forte(c) || t === 'trovoada';
+      html += `<div class="chuva ${intensa ? 'forte' : ''}"><div class="camada longe"></div><div class="camada perto"></div></div>`;
+    }
+    if (['parcial', 'nublado', 'chuva', 'trovoada', 'nevoa'].includes(t)) {
+      const qtd = +(new URLSearchParams(location.search).get('nuvens') || (t === 'parcial' ? 2 : 4));
+      for (let i = 0; i < qtd; i++)
+        html += `<div class="nuvem-amb" style="--top:${8 + i * 17}%;--w:${38 + (i % 2) * 22}vw;--dur:${140 + i * 55}s;--atr:-${i * 47}s;--o:${t === 'parcial' ? .05 : .085}"></div>`;
+    }
+    if (t === 'trovoada') html += '<div class="clarao"></div>';
+    if (t === 'nevoa') for (let i = 0; i < 3; i++) html += `<div class="faixa-nevoa" style="--top:${45 + i * 14}%;--dur:${60 + i * 25}s"></div>`;
+    alvo.innerHTML = html;
+  };
+
+  const css = document.createElement('style');
+  css.textContent = `
+    .icone { overflow: visible; }
+    .icone * { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+    .t-raios { transform-origin: 12px 12px; animation: t-girar 30s linear infinite; }
+    .t-nuvem, .t-lua { animation: t-flutua 7s ease-in-out infinite; }
+    .t-gota { animation: t-cai 1.4s linear infinite; animation-delay: var(--d); }
+    .t-floco { animation: t-cai 2.8s linear infinite; animation-delay: var(--d); stroke-width: 2.4; }
+    .t-raio { animation: t-relampago 4s steps(1) infinite; }
+    .t-nevoa { animation: t-flutua 6s ease-in-out infinite; }
+    @keyframes t-girar { to { transform: rotate(360deg); } }
+    @keyframes t-flutua { 50% { transform: translateX(1px); } }
+    @keyframes t-cai { from { transform: translateY(-2px); opacity: 0; } 30% { opacity: 1; } to { transform: translateY(5px); opacity: 0; } }
+    @keyframes t-relampago { 0%, 86%, 92% { opacity: 1; } 88%, 94% { opacity: .2; } }
+
+    /* Ambiente */
+    .ambiente { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+    .chuva { position: absolute; inset: -25%; rotate: 12deg; }
+    .chuva .camada { position: absolute; left: 0; right: 0; top: 0; bottom: 0; will-change: transform; }
+    .chuva .perto { background: var(--chuva-perto) repeat; background-size: 260px 360px; opacity: .42;
+      animation: chuva-perto .42s linear infinite; }
+    .chuva .longe { background: var(--chuva-longe) repeat; background-size: 200px 280px; opacity: .22;
+      animation: chuva-longe .7s linear infinite; }
+    .chuva.forte .perto { opacity: .65; } .chuva.forte .longe { opacity: .38; }
+    @keyframes chuva-perto { from { transform: translateY(-360px); } to { transform: translateY(0); } }
+    @keyframes chuva-longe { from { transform: translateY(-280px); } to { transform: translateY(0); } }
+    .nuvem-amb { position: absolute; top: var(--top); left: 0; width: var(--w); aspect-ratio: 2.4; border-radius: 50%;
+      background: radial-gradient(ellipse at 50% 55%, rgb(255 255 255 / calc(var(--o) * .8)), rgb(255 255 255 / calc(var(--o) * .45)) 25%, rgb(255 255 255 / calc(var(--o) * .15)) 48%, transparent 66%);
+      animation: nuvem-amb var(--dur) linear infinite; animation-delay: var(--atr); will-change: transform; }
+    @keyframes nuvem-amb { from { transform: translateX(-60vw); } to { transform: translateX(160vw); } }
+    .clarao { position: absolute; inset: 0; background: rgb(220 230 255 / .09); opacity: 0; will-change: opacity; animation: clarao 9s steps(1) infinite 2s; }
+    @keyframes clarao { 0%, 90%, 92.5%, 95% { opacity: 0; } 91%, 94% { opacity: 1; } }
+    .faixa-nevoa { position: absolute; top: var(--top); left: -20%; width: 140%; height: 14vh; will-change: transform;
+      background: linear-gradient(to right, transparent, rgb(230 235 240 / .045) 30%, rgb(230 235 240 / .06) 60%, transparent);
+      -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40%, #000 60%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 40%, #000 60%, transparent);
+      animation: nevoa var(--dur) ease-in-out infinite alternate; }
+    @keyframes nevoa { to { transform: translateX(12vw); } }
+  `;
+  document.head.append(css);
+})();

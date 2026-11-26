@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Tempo e notícias</title>
+<!-- Tela lateral do bloqueio (notebook, 1366x768): tempo em detalhe e notícias.
+     Dados: ~/.cache/trava-{clima,radar,noticias}.js (o bloqueio atualiza a cada 10 min; a página relê sozinha).
+     Nada anima continuamente: só trocas curtas (notícia a cada 12 s). Parada, a página não gasta CPU. -->
+<link rel="stylesheet" href="file:///home/arthos/.cache/wal/colors.css">
+<style>
+  :root { --fg: var(--foreground, #e2e2e2); --bg: var(--background, #0e0e0e);
+    --suave: color-mix(in srgb, var(--fg) 74%, transparent); --fraco: color-mix(in srgb, var(--fg) 45%, transparent);
+    --linha: color-mix(in srgb, var(--fg) 12%, transparent); --vidro: color-mix(in srgb, var(--fg) 5%, transparent);
+    --azul: #8fc8ff; --quente: #ffcf7a; --verde: #86d9a4; --ambar: #ffb700; }
+  * { margin: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; cursor: none; color: var(--fg);
+    background: radial-gradient(ellipse 90% 70% at 18% 0%, #171c28, #090a0e 72%);
+    font-family: "Adwaita Sans", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 36.6vw; gap: 40px; padding: 32px 40px 30px; }
+  section { display: flex; flex-direction: column; gap: 18px; min-width: 0; min-height: 0; }
+  .rotulo { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 500;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--fraco); }
+  .rotulo span + span { letter-spacing: .04em; text-transform: none; font-weight: 400; }
+  .icone { overflow: visible; flex: none; }
+  .icone * { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; animation: none !important; }
+
+  /* Agora */
+  .agora { display: grid; grid-template-columns: auto auto 1fr 256px; align-items: center; gap: 20px; }
+  .agora > .icone { width: 78px; height: 78px; stroke-width: 1.2; }
+  .agora .t { font-size: 96px; font-weight: 200; line-height: .86; letter-spacing: -.04em; }
+  .agora .c { font-size: 24px; font-weight: 400; letter-spacing: -.01em; }
+  .agora .e { font-size: 15px; color: var(--suave); margin-top: 7px; line-height: 1.45; }
+  .aviso { border-radius: 18px; background: var(--vidro); border: 1px solid var(--linha); padding: 14px 16px; display: grid; gap: 4px; }
+  .aviso .a1 { display: flex; align-items: center; gap: 9px; font-size: 17px; font-weight: 500; }
+  .aviso .a1 i { width: 9px; height: 9px; border-radius: 50%; background: var(--verde); flex: none; }
+  .aviso[data-cor=longe] .a1 i, .aviso[data-cor=chuva] .a1 i { background: #6cd1eb; } .aviso[data-cor=forte] .a1 i { background: var(--ambar); }
+  .aviso .a2 { font-size: 13.5px; color: var(--suave); } .aviso .a3 { font-size: 12.5px; color: var(--fraco); }
+
+  /* Blocos de destaque */
+  .blocos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .bloco { border-radius: 16px; background: var(--vidro); border: 1px solid var(--linha); padding: 12px 15px 13px; min-width: 0; }
+  .bloco h3 { font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--fraco); }
+  .bloco .v { display: flex; align-items: baseline; gap: 7px; margin-top: 6px; white-space: nowrap; }
+  .bloco .v b { font-size: 25px; font-weight: 400; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .bloco .v small { font-size: 13px; color: var(--suave); overflow: hidden; text-overflow: ellipsis; }
+  .bloco .barra { height: 4px; border-radius: 4px; background: var(--linha); margin-top: 9px; position: relative; overflow: hidden; }
+  .bloco .barra i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--azul); }
+  .bloco .barra.uv { background: linear-gradient(90deg, #5ec26a, #f2d54a 30%, #f39a3d 52%, #e5534b 74%, #b46bd6); overflow: visible; opacity: .9; }
+  .bloco .barra.uv i { width: 3px; top: -4px; bottom: -4px; background: #fff; border-radius: 2px; transform: translateX(-1px); box-shadow: 0 0 0 2px rgb(0 0 0 / .45); }
+  .bloco .barra.sol i { background: var(--quente); }
+  .seta { width: 15px; height: 15px; flex: none; align-self: center; }
+  .seta path { fill: var(--suave); }
+
+  /* Próximas horas */
+  .grafico { flex: 1; min-height: 0; position: relative; }
+  .grafico svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  .grafico text { fill: var(--fraco); font-size: 12px; font-family: inherit; font-variant-numeric: tabular-nums; }
+  .grafico .tl { fill: var(--fg); font-size: 13px; font-weight: 500; }
+  .grafico .pc { fill: var(--azul); font-size: 11.5px; }
+
+  /* Próximos dias */
+  .dias { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .dia { border-radius: 16px; background: var(--vidro); border: 1px solid var(--linha); padding: 11px 14px 12px; display: grid; gap: 7px; }
+  .dia.hoje { background: color-mix(in srgb, var(--fg) 9%, transparent); border-color: color-mix(in srgb, var(--fg) 22%, transparent); }
+  .dia .topo { display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 500; }
+  .dia .topo .icone { width: 26px; height: 26px; }
+  .dia .temps { font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .dia .temps small { font-size: 15px; color: var(--fraco); margin-left: 6px; }
+  .dia .faixa { height: 4px; border-radius: 4px; background: var(--linha); position: relative; }
+  .dia .faixa i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: linear-gradient(90deg, var(--azul), var(--quente)); }
+  .dia .ch { font-size: 12.5px; color: var(--fraco); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dia .ch b { color: var(--azul); font-weight: 500; }
+
+  /* Notícias */
+  .pontos { display: flex; gap: 4px; align-items: center; }
+  .pontos i { width: 5px; height: 5px; border-radius: 50%; background: var(--linha); }
+  .pontos i.ativo { width: 16px; border-radius: 5px; background: var(--fg); }
+  .rolo { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; transition: opacity .32s ease; }
+  .rolo.troca { opacity: 0; }
+  .manchete { position: relative; flex: 1.35; min-height: 0; border-radius: 20px; overflow: hidden; background: #14161c; border: 1px solid var(--linha); }
+  .manchete img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .manchete::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgb(6 7 10 / .96) 4%, rgb(6 7 10 / .72) 36%, transparent 72%); }
+  .manchete .txt { position: absolute; left: 20px; right: 20px; bottom: 17px; z-index: 1; }
+  .manchete .tt { font-size: 22px; font-weight: 500; line-height: 1.24; letter-spacing: -.01em; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 8px rgb(0 0 0 / .6); }
+  .meta { font-size: 12px; color: var(--suave); letter-spacing: .03em; margin-bottom: 7px; }
+  .meta b { color: var(--azul); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; font-size: 11px; }
+  .lista { flex: 1; min-height: 0; display: grid; grid-auto-rows: 1fr; gap: 10px; }
+  .item { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: center; min-height: 0; padding: 9px; border-radius: 16px; background: var(--vidro); border: 1px solid var(--linha); }
+  .item img { width: 112px; height: 100%; max-height: 74px; min-height: 58px; object-fit: cover; border-radius: 10px; background: var(--linha); }
+  .item .tt { font-size: 14.5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .item .meta { margin: 5px 0 0; color: var(--fraco); }
+  .vazio { color: var(--fraco); font-size: 15px; }
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <div class="rotulo"><span id="titulo-agora">agora</span><span id="atualizado"></span></div>
+    <div class="agora" id="agora"></div>
+    <div class="blocos" id="blocos"></div>
+    <div class="rotulo" style="margin-top:2px"><span>próximas 12 horas</span><span>temperatura · chance de chuva</span></div>
+    <div class="grafico"><svg id="grafico"></svg></div>
+    <div class="dias" id="dias"></div>
+  </section>
+  <section>
+    <div class="rotulo"><span>notícias · g1</span><span class="pontos" id="pontos"></span></div>
+    <div class="rolo" id="rolo"></div>
+  </section>
+</main>
+<script src="file:///home/arthos/.cache/trava-clima.js"></script>
+<script src="file:///home/arthos/.cache/trava-radar.js"></script>
+<script src="file:///home/arthos/.cache/trava-noticias.js"></script>
+<script src="tempo.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  const icone = (c, noite) => window.iconeTempo ? window.iconeTempo(c, noite) : '';
+  const seguro = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const minutos = hm => +hm.slice(0, 2) * 60 + +hm.slice(3);
+  const durar = m => m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ' ' + String(m % 60).padStart(2, '0') : ''}` : `${m} min`;
+  let pausado = false;
+
+  // ── O que o radar diz (mesma leitura da tela do mapa)
+  function aviso(C, R) {
+    const p = R?.perto, horas = C.horas || [];
+    const prox = horas.slice(1).find(h => h.chuva >= 50), pico = horas.slice(0, 10).reduce((a, h) => h.chuva > a.chuva ? h : a, { chuva: -1 });
+    const a3 = prox ? `previsão: ${prox.chuva}% às ${prox.hora.slice(0, 2)}h` : pico.chuva >= 20 ? `previsão: pico de ${pico.chuva}% às ${pico.hora.slice(0, 2)}h` : 'previsão: sem chuva nas próximas horas';
+    let cor = 'calmo', a1, a2;
+    if (!R || !R.analisado) { a1 = C.chuvaAgora > 0 ? 'Chovendo agora' : 'Sem chuva agora'; a2 = 'radar indisponível'; cor = C.chuvaAgora > 0 ? 'chuva' : 'calmo'; }
+    else if (!p) { a1 = 'Radar limpo'; a2 = `sem chuva num raio de ${R.raio} km`; }
+    else if (p.km <= 3) { a1 = 'Chovendo aqui'; a2 = p.forte ? 'chuva forte sobre a região' : 'chuva sobre a região'; cor = p.forte ? 'forte' : 'chuva'; }
+    else { const t = { aproximando: 'se aproximando', afastando: 'se afastando', parada: 'quase parada', nova: 'surgiu agora' }[p.tendencia];
+      a1 = `Chuva a ${p.km} km`; a2 = `a ${p.direcao}${t ? ' · ' + t : ''}`; cor = p.km > 40 ? 'longe' : p.forte ? 'forte' : 'chuva'; }
+    return `<div class="aviso" data-cor="${cor}"><div class="a1"><i></i>${a1}</div><div class="a2">${a2}</div><div class="a3">${a3}</div></div>`;
+  }
+
+  // ── Sol: quanto falta para nascer ou se pôr (atualiza a cada minuto)
+  function sol(C) {
+    const d = C.dias || [], hoje = d[0]; if (!hoje?.nasce) return '';
+    const agora = new Date().getHours() * 60 + new Date().getMinutes(), n = minutos(hoje.nasce), p = minutos(hoje.poe);
+    let titulo, hora, falta, frac;
+    if (agora >= n && agora < p) { titulo = 'pôr do sol'; hora = hoje.poe; falta = p - agora; frac = (agora - n) / (p - n); }
+    else { titulo = 'nascer do sol'; hora = agora < n ? hoje.nasce : (d[1]?.nasce || hoje.nasce); const alvo = minutos(hora) + (agora < n ? 0 : 1440);
+      falta = alvo - agora; const noite = 1440 - (p - n); frac = 1 - falta / noite; }
+    return `<h3>${titulo}</h3><div class="v"><b>${hora}</b><small>em ${durar(falta)}</small></div><div class="barra sol"><i style="width:${Math.round(Math.min(1, Math.max(0, frac)) * 100)}%"></i></div>`;
+  }
+
+  function tempo() {
+    const C = window.CLIMA, R = window.RADAR; if (!C) { $('agora').innerHTML = '<p class="vazio">sem dados do tempo no momento</p>'; return; }
+    const noite = C.dia === false, hoje = (C.dias || [])[0] || {};
+    $('titulo-agora').textContent = `${C.lugar || ''} · agora`;
+    $('atualizado').textContent = `${C.fonte || ''} · atualizado ${new Date(C.atualizado).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    $('agora').innerHTML = `${icone(C.codigo, noite)}<div class="t">${C.temp}°</div>
+      <div><div class="c">${C.condicao}</div><div class="e">sensação de ${C.sensacao}°<br>hoje ${hoje.min ?? '–'}° a ${hoje.max ?? '–'}°</div></div>${aviso(C, R)}`;
+
+    const uvMax = hoje.uv ?? 0, uv = C.uvAgora ?? 0, nivel = u => u < 3 ? 'baixo' : u < 6 ? 'moderado' : u < 8 ? 'alto' : u < 11 ? 'muito alto' : 'extremo';
+    const giro = { N: 180, NE: 225, L: 270, SE: 315, S: 0, SO: 45, O: 90, NO: 135 }[C.ventoDir] ?? 0;      // seta aponta para onde o vento vai
+    const de = { N: 'norte', NE: 'nordeste', L: 'leste', SE: 'sudeste', S: 'sul', SO: 'sudoeste', O: 'oeste', NO: 'noroeste' }[C.ventoDir];
+    $('blocos').innerHTML = `
+      <div class="bloco"><h3>vento${de ? ' de ' + de : ''}</h3><div class="v"><b>${C.vento}</b><small>km/h · rajadas ${C.rajada ?? '–'}</small>
+        <svg class="seta" viewBox="0 0 16 16" style="transform:rotate(${giro}deg);margin-left:auto"><path d="M8 1l5 13-5-3.4L3 14z"/></svg></div></div>
+      <div class="bloco"><h3>umidade</h3><div class="v"><b>${C.umidade}%</b><small>nuvens ${C.nuvens}%</small></div><div class="barra"><i style="width:${C.umidade}%"></i></div></div>
+      <div class="bloco"><h3>índice uv</h3><div class="v"><b>${Math.round(uv)}</b><small>${nivel(uv)} · máx ${Math.round(uvMax)} hoje</small></div><div class="barra uv"><i style="left:${Math.min(100, uv / 12 * 100)}%"></i></div></div>
+      <div class="bloco"><h3>chuva hoje</h3><div class="v"><b>${hoje.chuva ?? 0}%</b><small>${hoje.mm ? String(hoje.mm).replace('.', ',') + ' mm previstos' : 'sem acumulado'}</small></div><div class="barra"><i style="width:${hoje.chuva ?? 0}%"></i></div></div>
+      <div class="bloco" id="bloco-sol">${sol(C)}</div>
+      <div class="bloco"><h3>amanhã</h3><div class="v"><b>${C.dias?.[1] ? C.dias[1].max + '°' : '–'}</b><small>${C.dias?.[1] ? `${seguro(C.dias[1].condicao).toLowerCase()} · ${C.dias[1].chuva}%` : ''}</small></div><div class="barra"><i style="width:${C.dias?.[1]?.chuva ?? 0}%"></i></div></div>`;
+
+    // Próximos dias (faixa de temperatura na escala da semana)
+    const ds = C.dias || [], dmin = Math.min(...ds.map(x => x.min)), dmax = Math.max(...ds.map(x => x.max));
+    const nomes = { dom: 'domingo', seg: 'segunda', ter: 'terça', qua: 'quarta', qui: 'quinta', sex: 'sexta', 'sáb': 'sábado' };
+    $('dias').innerHTML = ds.map((x, i) => { const a = (x.min - dmin) / (dmax - dmin || 1) * 100, b = (x.max - dmin) / (dmax - dmin || 1) * 100;
+      return `<div class="dia${i ? '' : ' hoje'}"><div class="topo"><span>${i ? nomes[x.dia] || x.dia : 'hoje'}</span>${icone(x.codigo, false)}</div>
+        <div class="temps">${x.max}°<small>${x.min}°</small></div><div class="faixa"><i style="left:${a}%;right:${100 - b}%"></i></div>
+        <div class="ch">${x.chuva >= 20 ? `<b>${x.chuva}%</b> · ${String(x.mm).replace('.', ',')} mm` : 'sem chuva'}</div></div>`; }).join('');
+    grafico();
+  }
+  function grafico() {
+    const C = window.CLIMA; if (!C) return;
+    // Gráfico no tamanho real: curva suave = temperatura; barras = chance de chuva
+    const el = $('grafico'), cx = el.parentNode.getBoundingClientRect(), hs = C.horas || [], n = hs.length;
+    const Wg = Math.round(cx.width), Hg = Math.round(cx.height), base = Hg - 24, altoB = Math.min(64, Hg * .34), topo = 26, fundoT = base - altoB - 22;
+    el.setAttribute('viewBox', `0 0 ${Wg} ${Hg}`);
+    const ts = hs.map(x => x.temp), tmin = Math.min(...ts), tmax = Math.max(...ts), X = i => 24 + i * (Wg - 48) / Math.max(1, n - 1),
+      Y = t => topo + (1 - (t - tmin) / (tmax - tmin || 1)) * (fundoT - topo);
+    const P = hs.map((x, i) => [X(i), Y(x.temp)]);
+    let d = P.length ? `M${P[0][0]},${P[0][1]}` : '';
+    for (let i = 0; i < P.length - 1; i++) { const a = P[Math.max(0, i - 1)], b = P[i], c = P[i + 1], e = P[Math.min(P.length - 1, i + 2)], k = .18;
+      d += `C${b[0] + (c[0] - a[0]) * k},${b[1] + (c[1] - a[1]) * k} ${c[0] - (e[0] - b[0]) * k},${c[1] - (e[1] - b[1]) * k} ${c[0]},${c[1]}`; }
+    let s = `<defs><linearGradient id="gc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fd3ff" stop-opacity=".9"/><stop offset="1" stop-color="#3d97ec" stop-opacity=".3"/></linearGradient>
+      <linearGradient id="gl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffcf7a"/><stop offset="1" stop-color="#ff9f6a"/></linearGradient>
+      <linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffcf7a" stop-opacity=".2"/><stop offset="1" stop-color="#ffcf7a" stop-opacity="0"/></linearGradient></defs>`;
+    if (P.length) s += `<path d="${d}L${P[n - 1][0]},${base - altoB - 6}L${P[0][0]},${base - altoB - 6}Z" fill="url(#ga)"/>`;
+    hs.forEach((x, i) => { const bh = Math.max(2, x.chuva / 100 * altoB);
+      s += `<rect x="${X(i) - 11}" y="${base - altoB}" width="22" height="${altoB}" rx="5" fill="rgb(255 255 255 / .045)"/><rect x="${X(i) - 11}" y="${base - bh}" width="22" height="${bh}" rx="5" fill="url(#gc)"/>`; });
+    s += `<path d="${d}" fill="none" stroke="url(#gl)" stroke-width="3" stroke-linecap="round"/>`;
+    hs.forEach((x, i) => {
+      if (i % 2 === 0) s += `<text class="tl" x="${X(i)}" y="${Y(x.temp) - 11}" text-anchor="middle">${x.temp}°</text>`;
+      s += `<text x="${X(i)}" y="${Hg - 5}" text-anchor="middle">${i === 0 ? 'agora' : x.hora.slice(0, 2) + 'h'}</text>`;
+      if (x.chuva >= 25) s += `<text class="pc" x="${X(i)}" y="${base - Math.max(2, x.chuva / 100 * altoB) - 5}" text-anchor="middle">${x.chuva}%</text>`; });
+    if (P.length) s += `<circle cx="${P[0][0]}" cy="${P[0][1]}" r="5" fill="#ffcf7a" stroke="#0b0c10" stroke-width="2.5"/>`;
+    el.innerHTML = s;
+  }
+
+  // ── Notícias: uma manchete com foto e três chamadas; avança uma por vez a cada 12 s
+  let N = window.NOTICIAS || [], vez = 0, relogio = 0;
+  const desde = t => { const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000)); return m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : `há ${Math.round(m / 1440)} d`; };
+  const meta = n => `<div class="meta"><b>${n.origem === 'RN' ? 'Rio Grande do Norte' : 'Brasil'}</b> · ${desde(n.quando)}</div>`;
+  function pintar() {
+    const m = N[vez % N.length], resto = [1, 2, 3].map(i => N[(vez + i) % N.length]).filter((x, i, a) => x && x !== m && a.indexOf(x) === i);
+    $('rolo').innerHTML = `<div class="manchete">${m.img ? `<img src="${m.img}" alt="" onerror="this.remove()">` : ''}<div class="txt">${meta(m)}<div class="tt">${seguro(m.titulo)}</div></div></div>
+      <div class="lista">${resto.map(n => `<div class="item">${n.img ? `<img src="${n.img}" alt="" onerror="this.style.visibility='hidden'">` : '<img alt="">'}<div><div class="tt">${seguro(n.titulo)}</div>${meta(n)}</div></div>`).join('')}</div>`;
+    $('pontos').innerHTML = N.map((_, i) => `<i class="${i === vez % N.length ? 'ativo' : ''}"></i>`).join('');
+    const prox = N[(vez + 4) % N.length]; if (prox?.img) new Image().src = prox.img;      // adianta a próxima foto
+  }
+  function girar() {
+    clearTimeout(relogio); relogio = setTimeout(girar, 12000);
+    if (pausado || N.length < 2) return;
+    vez = (vez + 1) % N.length; $('rolo').classList.add('troca');
+    setTimeout(() => { pintar(); $('rolo').classList.remove('troca'); }, 340);
+  }
+  function noticias() {
+    if (!N.length) { $('rolo').innerHTML = '<p class="vazio">sem notícias no momento</p>'; $('pontos').innerHTML = ''; return; }
+    vez %= N.length; pintar(); clearTimeout(relogio); relogio = setTimeout(girar, 12000);
+  }
+  tempo(); noticias();
+  addEventListener('load', grafico); document.fonts?.ready.then(grafico);
+  setInterval(() => { const b = $('bloco-sol'); if (b && window.CLIMA && !pausado) b.innerHTML = sol(window.CLIMA); }, 60000);
+
+  // ── Campo de senha aberto na tela principal: congela aqui.
+  window.senha = e => { pausado = e.fase === 'digitando' || e.fase === 'verificando'; };
+
+  // ── Dados novos: relê os arquivos sem recarregar a página.
+  const assinatura = () => `${window.CLIMA?.atualizado}|${window.RADAR?.quadros?.at(-1)?.t}`, cara = () => (window.NOTICIAS || []).map(n => n.titulo).join('|');
+  let vista = assinatura(), lidas = cara();
+  const reler = arq => new Promise(ok => { const s = document.createElement('script'); s.src = `file:///home/arthos/.cache/${arq}?${Date.now()}`;
+    s.onload = s.onerror = () => { s.remove(); ok(); }; document.head.append(s); });
+  setInterval(async () => {
+    if (pausado) return;
+    for (const a of ['trava-clima.js', 'trava-radar.js', 'trava-noticias.js']) await reler(a);
+    if (assinatura() !== vista) { vista = assinatura(); tempo(); }
+    if (cara() !== lidas) { lidas = cara(); N = window.NOTICIAS || []; vez = 0; noticias(); }
+  }, 30000);
+</script>
+</body>
+</html>

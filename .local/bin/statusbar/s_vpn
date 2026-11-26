@@ -1,18 +1,18 @@
-status=$(mullvad status | grep -o "Connected\|Disconnected")
-if [[ "$status" != "Connected" ]]; then
-    echo ""
-    exit 0
-fi
+#!/bin/sh
+# Uma chamada ao mullvad (antes eram duas).
+st=$(mullvad status 2>/dev/null)
+case $st in
+    Connected*) ;;
+    *) echo ""; exit 0 ;;
+esac
 
-visible=$(mullvad status | grep "Visible location:" | sed 's/Visible location:[ \t]*//')
-
+visible=$(printf '%s\n' "$st" | sed -n 's/.*Visible location:[ \t]*//p')
 country=$(echo "$visible" | awk -F, '{print $1}' | xargs)
 city=$(echo "$visible" | awk -F, '{print $2}' | sed -E 's/\..*//; s/^[ \t]*//' | xargs)
 
 echo " $country, $city"
 
-
 case $BLOCK_BUTTON in
-    1) notify-send "Mullvad VPN" "$country, $city"; ;;
+    1|3) setsid -f barpop vpn >/dev/null 2>&1 ;;
     6) st -e nvim "$0" ;;
 esac

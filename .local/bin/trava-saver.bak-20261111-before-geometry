@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+# Proteção de tela do xsecurelock: abre uma página de ~/.config/trava (WebKit) dentro da janela que
+# o xsecurelock entrega em XSCREENSAVER_WINDOW. Monitor principal (pela largura, TRAVA_LARGURA,
+# padrão 2560 = tela 2): index.html, com o campo de senha. Laterais: radar.html (1920 = tela 3) e
+# info.html (1366 = notebook); sem página, preto. Este processo não vê a senha: se travar ou
+# fechar, a tela continua bloqueada pelo xsecurelock.
+import os, signal, sys
+import gi
+gi.require_version('Gtk', '3.0'); gi.require_version('Gdk', '3.0')
+gi.require_version('GdkX11', '3.0'); gi.require_version('WebKit2', '4.1')
+from gi.repository import Gtk, Gdk, GdkX11, WebKit2
+
+PAGINA = os.path.expanduser(os.environ.get('TRAVA_PAGINA', '~/.config/trava/index.html'))
+
+xid = int(os.environ.get('XSCREENSAVER_WINDOW', '0'), 0)
+if not xid:
+    sys.exit('trava-saver: sem XSCREENSAVER_WINDOW')
+
+display = GdkX11.X11Display.get_default()
+pai = GdkX11.X11Window.foreign_new_for_display(display, xid)
+largura, altura = pai.get_width(), pai.get_height()
+if os.environ.get("TRAVA_DEBUG"):
+    with open(os.path.expanduser("~/.cache/trava-saver.log"), "a") as f:
+        print(f"janela {xid:#x} {largura}x{altura}", file=f)
+
+principal = str(largura) == os.environ.get('TRAVA_LARGURA', '2560')
+# Telas laterais: cada monitor tem sua página (largura → arquivo em ~/.config/trava). Sem página: preto.
+LATERAIS = {'1920': 'radar.html', '1366': 'info.html'}
+if not principal and str(largura) in LATERAIS:
+    PAGINA = os.path.join(os.path.dirname(PAGINA), LATERAIS[str(largura)])
+lateral = not principal and os.path.exists(PAGINA)
+
+janela = Gtk.Window(type=Gtk.WindowType.POPUP)
+janela.set_default_size(largura, altura)
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    janela.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0, 0, 0, 1))
+if not principal and not lateral:
+    # Outros monitores: preto sólido (sem isso a janela fica "transparente" e o
+    # monitor do adaptador USB mostra restos da imagem anterior).
+    janela.realize()
+    janela.get_window().reparent(pai, 0, 0)
+    janela.show_all()
+    janela.get_window().move_resize(0, 0, largura, altura)
+    signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+    Gtk.main()
+    sys.exit(0)
+web = WebKit2.WebView()
+web.set_background_color(Gdk.RGBA(0, 0, 0, 1))
+cfg = web.get_settings()
+cfg.set_allow_file_access_from_file_urls(True)
+_gpu = {'never': WebKit2.HardwareAccelerationPolicy.NEVER, 'always': WebKit2.HardwareAccelerationPolicy.ALWAYS}
+cfg.set_hardware_acceleration_policy(_gpu.get(os.environ.get('TRAVA_GPU', 'always'), WebKit2.HardwareAccelerationPolicy.ALWAYS))
+cfg.set_enable_developer_extras(False)
+web.load_uri('file://' + PAGINA)
+janela.add(web)
+janela.realize()
+janela.get_window().reparent(pai, 0, 0)
+janela.show_all()
+janela.get_window().move_resize(0, 0, largura, altura)
+
+# Ponte com o módulo de senha (auth_trava): repassa à página só o estado publicado por ele
+# (fase e quantidade de caracteres). Ignora estados antigos, de antes desta proteção abrir.
+import json, time
+from gi.repository import GLib
+ESTADO = os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'trava-senha.json')
+_inicio, _visto, _caps, _pronta = time.time(), [0.0], [None], [False]
+# Só entrega estados depois que a página carregou: ao acordar da tela apagada, o xsecurelock abre a
+# página e o auth_trava juntos, e o "campo aberto" chegava antes do window.senha existir (se perdia).
+def _carregou(_w, ev):
+    if ev == WebKit2.LoadEvent.FINISHED:
+        _pronta[0] = True; _visto[0] = 0.0; _caps[0] = None
+web.connect('load-changed', _carregou)
+_teclado = Gdk.Keymap.get_for_display(Gdk.Display.get_default())
+def _ponte():
+    if not _pronta[0]:
+        return True
+    caps = _teclado.get_caps_lock_state()          # estado da tecla, não o que foi digitado
+    if caps != _caps[0]:
+        _caps[0] = caps
+        web.evaluate_javascript('window.capsLock && window.capsLock(%s)' % ('true' if caps else 'false'), -1, None, None, None, None, None)
+    try:
+        with open(ESTADO) as f:
+            e = json.load(f)
+        if e.get('t', 0) > max(_visto[0], _inicio - 5):
+            _visto[0] = e['t']
+            web.evaluate_javascript('window.senha && window.senha(%s)' % json.dumps(
+                {'fase': str(e.get('fase', '')), 'n': int(e.get('n', 0)), 'msg': str(e.get('msg', ''))[:80]}), -1, None, None, None, None, None)
+    except (OSError, ValueError, TypeError):
+        pass
+    return True
+GLib.timeout_add(50, _ponte)
+
+# Mapa da tela 3 controlado pelo celular (trava-mapa-controle grava zoom e centro): só na página do radar.
+MAPA = os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'trava-mapa.json')
+_mapa_visto = [0.0]
+def _mapa():
+    if not _pronta[0]:
+        return True
+    try:
+        with open(MAPA) as f:
+            e = json.load(f)
+        if e.get('t', 0) > max(_mapa_visto[0], _inicio - 5):
+            _mapa_visto[0] = e['t']
+            web.evaluate_javascript('window.mapa && window.mapa(%s)' % json.dumps(
+                {'z': int(e['z']), 'lat': float(e['lat']), 'lon': float(e['lon']),
+                 'camada': 'satelite' if e.get('camada') == 'satelite' else 'ruas'}), -1, None, None, None, None, None)
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return True
+if PAGINA.endswith('radar.html'):
+    GLib.timeout_add(150, _mapa)
+
+# Tela apagada por comando (DPMS): esconde a página — o WebKit para de desenhar e de animar, e o
+# adaptador USB da tela 3 para de gastar CPU. Volta sozinha quando a tela acorda.
+import ctypes
+try:
+    _x11, _xext = ctypes.CDLL('libX11.so.6'), ctypes.CDLL('libXext.so.6')
+    _x11.XOpenDisplay.restype = ctypes.c_void_p
+    _dpy = ctypes.c_void_p(_x11.XOpenDisplay(None))
+except OSError:
+    _dpy = None
+_ligada = [True]
+def _energia():
+    nivel, ativo = ctypes.c_uint16(0), ctypes.c_ubyte(0)
+    _xext.DPMSInfo(_dpy, ctypes.byref(nivel), ctypes.byref(ativo))
+    ligada = not (ativo.value and nivel.value)
+    if ligada != _ligada[0]:
+        _ligada[0] = ligada
+        web.show() if ligada else web.hide()
+    return True
+if _dpy:
+    GLib.timeout_add(1000, _energia)
+
+signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+signal.signal(signal.SIGINT, lambda *_: Gtk.main_quit())
+Gtk.main()

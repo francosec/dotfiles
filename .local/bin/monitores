@@ -14,15 +14,24 @@ xrandr --listproviders | awk -F'[: ]+' '/^Provider [1-9]/{print $2}' | while rea
 done
 sleep 1
 
-# "saida largura altura" de cada tela conectada, pelo modo preferido (o marcado com +) ou o primeiro listado.
-telas=$(xrandr --query | awk '
-  function fecha() { if (nome != "") print nome, (pref != "" ? pref : prim); nome = "" }
-  /^[^ ]+ connected/ { fecha(); nome = $1; pref = prim = ""; next }
+# Liga cada tela no modo que o X escolhe; o preferido (+) pode não ser o que roda (a tela 2 anuncia 4K e fica em 1440p).
+on=""
+for saida in $(xrandr | awk '/ connected/{print $1}'); do on="$on --output $saida --auto"; done
+# shellcheck disable=SC2086
+[ -n "$on" ] && xrandr $on
+
+# Daqui em diante, --current: lê o estado sem sondar os monitores de novo
+# (cada sondagem lê o EDID por HDMI e pelo adaptador USB e leva ~0,5–1 s).
+# "saida largura altura" de cada tela conectada: modo ativo (*), senão o preferido (+), senão o primeiro listado.
+telas=$(xrandr --current | awk '
+  function fecha() { if (nome != "") print nome, (cur != "" ? cur : pref != "" ? pref : prim); nome = "" }
+  /^[^ ]+ connected/ { fecha(); nome = $1; cur = pref = prim = ""; next }
   /^[^ ]/            { fecha(); next }
   nome != "" && /^ +[0-9]+x[0-9]+/ {
     split($1, r, "x"); m = r[1] " " r[2]
     if (prim == "") prim = m
     if (pref == "" && $0 ~ /\+/) pref = m
+    if (cur == "" && $0 ~ /\*/) cur = m
   }
   END { fecha() }')
 
@@ -35,16 +44,53 @@ if [ -z "$principal" ]; then principal=$interna; interna=; fi
 ordem=$(printf '%s\n%s\n%s\n' "$interna" "$principal" "$resto" | awk 'NF == 3')
 hmax=$(echo "$ordem" | awk '$3 > h {h = $3} END {print h + 0}')
 
-args="" x=0
-for saida in $(xrandr | awk '/ disconnected/{print $1}'); do args="$args --output $saida --off"; done
+# tela 2 em 2560x1440 pelo HDMI do notebook: o EDID só anuncia 60 Hz, mas aguenta 77 Hz com
+# blanking reduzido. ~300 MHz de pixel clock é o limite do HDMI 1.4 da GPU Intel (o i915
+# recusa acima disso). Testado em 09/11/2026; se a imagem falhar, use 2560x1440_74:
+# 298.11 2560 2608 2640 2720 1440 1443 1448 1481.
+# 75 Hz (291 MHz): a 77 Hz (298,8 MHz, no limite de 300 do HDMI 1.4) dava pontinhos vermelhos em fundo escuro (10/11/2026).
+modo_lg=2560x1440_75r
+set -- $principal
+if [ "${1#HDMI}" != "$1" ] && [ "$2x$3" = "2560x1440" ]; then
+  xrandr --current | grep -q "^ *$modo_lg " || xrandr --newmode "$modo_lg" 291.06 2560 2568 2600 2640 1440 1443 1448 1470 +hsync -vsync 2>/dev/null
+  xrandr --addmode "$1" "$modo_lg" 2>/dev/null
+fi
+
+# Posição, modo e taxa de todas as telas num comando só: cada xrandr que muda modo
+# faz os monitores perderem o sinal por ~1 s, e antes eram 3 seguidos.
+# tela 3 1920x1080 no adaptador USB (DVI-I-x-x): 75 Hz nativo do EDID (74,97); igual à tela 2
+# desde 10/11/2026. Cada Hz a mais pesa no SMIUSBD. O 77 customizado era
+# 1920x1080_77 179.22 1920 1968 2000 2080 1080 1083 1088 1119.
+args="" simples="" x=0
+for saida in $(xrandr --current | awk '/ disconnected/{print $1}'); do args="$args --output $saida --off"; done
+simples=$args
 while read -r nome w h; do
   [ -n "$nome" ] || continue
-  args="$args --output $nome --auto --pos ${x}x$(( (hmax - h) / 2 ))"
-  [ "$nome $w $h" = "$principal" ] && args="$args --primary"
+  pos="--pos ${x}x$(( (hmax - h) / 2 ))"
+  modo="--mode ${w}x${h}"
+  if [ "${nome#HDMI}" != "$nome" ] && [ "${w}x$h" = "2560x1440" ]; then
+    modo="--mode $modo_lg"
+  elif [ "${nome#DVI-I}" != "$nome" ] && [ "${w}x$h" = "1920x1080" ]; then
+    modo="--mode 1920x1080 --rate 75"
+  fi
+  args="$args --output $nome $modo $pos"
+  simples="$simples --output $nome --mode ${w}x${h} $pos"
+  if [ "$nome $w $h" = "$principal" ]; then args="$args --primary"; simples="$simples --primary"; fi
   x=$((x + w))
 done <<EOF
 $ordem
 EOF
 
+# Se o modo de 75 Hz for recusado, cai para os modos normais de cada tela.
 # shellcheck disable=SC2086
-[ -n "$args" ] && xrandr $args
+[ -n "$args" ] && { xrandr $args || xrandr $simples; }
+
+# Disposição mudou (boot, HDMI 1/2 da Alexa): o feh não redimensiona o fundo sozinho.
+# Nunca regenere o wallpaper de bloqueio por baixo do xsecurelock: isso causava
+# corrida entre lock/unlock e deixava um monitor cortado. O lock atual usa o
+# saver HTML; o cache é atualizado no próximo ciclo fora do bloqueio.
+# Em segundo plano: o dwm não precisa esperar o fundo (~1 s com o ImageMagick).
+command -v fundo >/dev/null && fundo &
+if ! pgrep -x xsecurelock >/dev/null 2>&1 && command -v lockwall >/dev/null; then
+  lockwall >/dev/null 2>&1 &
+fi

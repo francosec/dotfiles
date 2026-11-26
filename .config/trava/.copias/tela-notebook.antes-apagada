@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""tela-notebook: tela do notebook com a luz apagada; acende quando o cursor entra nela.
+
+A tela continua ligada no X (o cursor precisa conseguir entrar nela); só a luz de fundo apaga.
+Acende na hora em que o cursor entra; apaga na hora em que ele sai.
+Com a tela bloqueada (xsecurelock), fica sempre acesa: mostra a página de tempo e notícias.
+Uso: tela-notebook            (vigia, roda pelo ~/.xinitrc)
+     tela-notebook acender    (acende e para de vigiar até o próximo início)
+Precisa de permissão de escrita em /sys/class/backlight/*/brightness (regra udev 90-backlight.rules).
+"""
+import ctypes, ctypes.util, glob, os, re, subprocess, sys, time
+
+ESPERA_APAGAR = 0.0      # apaga assim que o cursor sai
+PASSO = 0.05             # frequência de leitura do cursor (20x por segundo)
+
+luz = (glob.glob('/sys/class/backlight/intel_backlight') or glob.glob('/sys/class/backlight/*') or [None])[0]
+if not luz:
+    sys.exit('tela-notebook: sem controle de luz em /sys/class/backlight')
+MAX = int(open(luz + '/max_brightness').read())
+ESTADO = os.path.expanduser('~/.cache/tela-notebook-brilho')   # brilho para quando acender
+
+
+def ler():
+    return int(open(luz + '/brightness').read())
+
+
+def gravar(v):
+    try:
+        with open(luz + '/brightness', 'w') as f:
+            f.write(str(v))
+        return True
+    except OSError as e:
+        print('tela-notebook: sem permissão para mudar a luz:', e, file=sys.stderr)
+        return False
+
+
+def brilho_salvo():
+    try:
+        v = int(open(ESTADO).read())
+        return v if 0 < v <= MAX else MAX
+    except (OSError, ValueError):
+        return MAX
+
+
+def bloqueada():
+    """xsecurelock rodando? Lê /proc direto (sem abrir processo)."""
+    for c in glob.glob('/proc/[0-9]*/comm'):
+        try:
+            if open(c).read().strip() == 'xsecurelock':
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def area():
+    """x, y, largura, altura da tela interna (eDP/LVDS) pelo xrandr --current (não refaz a leitura das telas)."""
+    try:
+        out = subprocess.run(['xrandr', '--current'], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    m = re.search(r'^(eDP\S*|LVDS\S*) connected(?: primary)? (\d+)x(\d+)\+(\d+)\+(\d+)', out, re.M)
+    return tuple(int(m.group(i)) for i in (4, 5, 2, 3)) if m else None
+
+
+if len(sys.argv) > 1 and sys.argv[1] == 'acender':
+    subprocess.run(['pkill', '-f', 'tela-notebook$'])
+    gravar(brilho_salvo())
+    sys.exit(0)
+
+# uma cópia só
+eu = os.getpid()
+for p in subprocess.run(['pgrep', '-f', 'tela-notebook$'], capture_output=True, text=True).stdout.split():
+    if int(p) != eu:
+        sys.exit(0)
+
+x11 = ctypes.cdll.LoadLibrary(ctypes.util.find_library('X11'))
+x11.XOpenDisplay.restype = ctypes.c_void_p
+x11.XDefaultRootWindow.restype = ctypes.c_ulong
+x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+x11.XQueryPointer.argtypes = [ctypes.c_void_p, ctypes.c_ulong] + [ctypes.POINTER(ctypes.c_ulong)] * 2 + [ctypes.POINTER(ctypes.c_int)] * 4 + [ctypes.POINTER(ctypes.c_uint)]
+dpy = x11.XOpenDisplay(None)
+if not dpy:
+    sys.exit('tela-notebook: sem display')
+raiz = x11.XDefaultRootWindow(dpy)
+r = ctypes.c_ulong(); f = ctypes.c_ulong(); rx = ctypes.c_int(); ry = ctypes.c_int(); wx = ctypes.c_int(); wy = ctypes.c_int(); mk = ctypes.c_uint()
+
+if ler() > 0:
+    open(ESTADO, 'w').write(str(ler()))
+geo, geo_t = area(), time.time()
+acesa = ler() > 0
+fora_desde = time.time()
+trava, trava_t = bloqueada(), time.time()
+while True:
+    if time.time() - trava_t > 0.5:                  # bloqueio entra/sai: confere 2x por segundo
+        trava, trava_t = bloqueada(), time.time()
+    if time.time() - geo_t > 5:                      # telas podem mudar (HDMI saiu/voltou)
+        geo, geo_t = area(), time.time()
+    x11.XQueryPointer(dpy, raiz, ctypes.byref(r), ctypes.byref(f), ctypes.byref(rx), ctypes.byref(ry), ctypes.byref(wx), ctypes.byref(wy), ctypes.byref(mk))
+    dentro = bool(geo) and geo[0] <= rx.value < geo[0] + geo[2] and geo[1] <= ry.value < geo[1] + geo[3]
+    if not geo or trava:                             # sem tela interna, ou tela bloqueada: deixa acesa
+        dentro = True
+    if dentro:
+        fora_desde = time.time()
+        if not acesa:
+            acesa = gravar(brilho_salvo()) or acesa
+    elif acesa and time.time() - fora_desde > ESPERA_APAGAR:
+        v = ler()
+        if v > 0:
+            open(ESTADO, 'w').write(str(v))
+        if gravar(0):
+            acesa = False
+    time.sleep(PASSO)

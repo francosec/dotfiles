@@ -1,0 +1,1360 @@
+#!/usr/bin/env python3
+"""barpop: pop-ups dos blocos do dwmblocks, todos com o mesmo visual.
+
+Uso: barpop <tipo>    tipos: cpu temp mem hdd upd vol mic net vpn cmus spotify data
+Chamado pelos scripts em ~/.local/bin/statusbar no clique.
+
+- Abre logo abaixo da barra, centrado no mouse (que está em cima do bloco clicado).
+- Clicar no mesmo bloco de novo fecha. Clicar em outro bloco troca de pop-up.
+- Fecha sozinho quando o mouse sai do pop-up e da barra logo acima dele.
+- Só lê /proc, /sys e comandos do sistema (wpctl, pactl, iw, df...). Nada de btop/htop.
+- Visual: cartão com cantos arredondados e sombra (precisa do picom para a transparência),
+  selo do ícone separado do texto, blocos de números, gráfico suave.
+- Cores do pywal (~/.cache/wal/colors.json); fonte JetBrainsMono no tamanho padrão do GTK,
+  o mesmo do calendário.
+"""
+import glob, hashlib, json, locale, math, os, re, signal, subprocess, sys, threading, time, urllib.request
+
+TIPOS = 'cpu temp mem hdd upd vol mic net vpn cmus spotify data'.split()
+if len(sys.argv) != 2 or sys.argv[1] not in TIPOS:
+    sys.exit('uso: barpop ' + '|'.join(TIPOS))
+TIPO = sys.argv[1]
+# Lê o mouse já, antes de carregar o GTK (~170 ms): se você clicar e mexer o mouse logo em
+# seguida, o pop-up ainda abre embaixo do bloco clicado.
+try:
+    _m = dict(l.split('=') for l in subprocess.run(['xdotool', 'getmouselocation', '--shell'],
+              capture_output=True, text=True, timeout=1).stdout.split())
+    MOUSE = (int(_m['X']), int(_m['Y']))
+except (OSError, subprocess.SubprocessError, KeyError, ValueError):
+    MOUSE = None
+RUN = os.environ.get('XDG_RUNTIME_DIR', '/tmp')
+PID = os.path.join(RUN, 'barpop.pid')
+
+# Já tem um aberto? Fecha. Se era o mesmo bloco, o clique só fecha (alternar).
+try:
+    pid, tipo_aberto = open(PID).read().split()
+    os.kill(int(pid), signal.SIGTERM)
+    if tipo_aberto == TIPO:
+        os.remove(PID)
+        sys.exit(0)
+except (OSError, ValueError):
+    pass
+open(PID, 'w').write(f'{os.getpid()} {TIPO}')
+
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk, GLib, GdkPixbuf, Pango
+
+locale.setlocale(locale.LC_ALL, '')
+LARGURA = 340     # largura do cartão
+DISTANCIA = 6     # px entre a barra e o pop-up
+# Vidro: a opacidade do fundo acompanha a do st (~/.cache/st-alpha, que o Ctrl+Shift+A/S
+# do st muda) e o picom desfoca o que fica atrás. Sem picom (Super+G), o fundo fica sólido.
+ST_ALPHA = os.path.expanduser('~/.cache/st-alpha')
+AJUSTE_VIDRO = 0.0   # somado à opacidade do st só nos pop-ups: -0.15 = 15 pontos mais transparente
+
+
+def vidro():
+    try:
+        a = float(open(ST_ALPHA).read())
+    except (OSError, ValueError):
+        a = 0.83
+    return max(0.0, min(1.0, a + AJUSTE_VIDRO))
+# Sombra, cantos arredondados e fade são do picom (regra class_g = 'Barpop' no picom.conf).
+FONTE = 'JetBrainsMono Nerd Font'
+AVISO, PERIGO = '#e5c07b', '#e06c75'
+
+
+# ---------- utilidades ----------
+
+def sh(*cmd, timeout=4, c=False):
+    """Roda e devolve a saída. c=True força mensagens em inglês (LC_ALL=C) para dar parse."""
+    env = dict(os.environ, LC_ALL='C') if c else None
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ''
+
+
+def solto(cmd):
+    """Roda um comando sem esperar e sem prender ao pop-up."""
+    subprocess.Popen(['setsid', '-f', 'sh', '-c', cmd],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def sinal_barra(n):
+    """Atualiza na hora o bloco de sinal n do dwmblocks (SIGRTMIN + n = 34 + n)."""
+    solto(f'kill -{34 + n} $(pidof dwmblocks)')
+
+
+def em_fundo(fn, depois):
+    def corre():
+        r = fn()
+        GLib.idle_add(depois, r)
+    threading.Thread(target=corre, daemon=True).start()
+
+
+def ler(caminho, padrao=''):
+    try:
+        return open(caminho).read().strip()
+    except OSError:
+        return padrao
+
+
+def tam(b):
+    for u in ('B', 'K', 'M', 'G', 'T'):
+        if abs(b) < 1024 or u == 'T':
+            return f'{b:.1f} {u}' if u in 'GT' else f'{b:.0f} {u}'
+        b /= 1024
+
+
+def taxa(b):
+    return tam(b) + '/s'
+
+
+def duracao(s):
+    s = int(s)
+    return f'{s // 60}:{s % 60:02d}'
+
+
+def cores():
+    """Fundo, texto e cinza: os mesmos do st (xrdb); sem xrdb, do pywal."""
+    x = dict(re.findall(r'^\*\.?(background|foreground|color8):\s*(#[0-9a-fA-F]{6})', sh('xrdb', '-query'), re.M))
+    if {'background', 'foreground', 'color8'} <= x.keys():
+        return x['background'], x['foreground'], x['color8']
+    try:
+        d = json.load(open(os.path.expanduser('~/.cache/wal/colors.json')))
+        return d['special']['background'], d['special']['foreground'], d['colors']['color8']
+    except (OSError, KeyError, ValueError):
+        return '#050709', '#e4dad3', '#9f9893'
+
+
+def nivel(frac, aviso=.7, perigo=.9):
+    return 'perigo' if frac >= perigo else 'aviso' if frac >= aviso else ''
+
+
+def esc(t):
+    return GLib.markup_escape_text(str(t))
+
+
+# ---------- visual ----------
+
+T = 10.0   # tamanho base da fonte (pt), lido do GTK em instalar_css
+
+
+def instalar_css():
+    global T
+    try:
+        T = float(Gtk.Settings.get_default().props.gtk_font_name.split()[-1])
+    except (AttributeError, ValueError, IndexError):
+        T = 10
+    bg, fg, dim = cores()
+    css = f"""
+    * {{ font-family: '{FONTE}'; font-size: {T}pt; color: {fg}; text-shadow: none; -gtk-icon-shadow: none; }}
+    window {{ background: transparent; }}
+    .cartao {{ border: 1px solid alpha({fg}, .12); border-radius: 14px; }}
+    .cabeca {{ padding-bottom: 12px; border-bottom: 1px solid alpha({fg}, .07); }}
+    .selo {{ background: alpha({fg}, .08); border-radius: 11px; min-width: 40px; min-height: 40px; }}
+    .selo label {{ font-size: {T * 1.45:.1f}pt; }}
+    .titulo {{ font-weight: bold; }}
+    .sub {{ color: {dim}; font-size: {T * .9:.1f}pt; }}
+    .valor {{ font-size: {T * 2:.1f}pt; font-weight: bold; }}
+    .estado {{ font-size: {T * .9:.1f}pt; font-weight: bold; padding: 4px 11px; border-radius: 99px;
+               background: alpha({fg}, .09); }}
+    .estado.perigo {{ background: alpha({PERIGO}, .16); }}
+    .estado.aviso {{ background: alpha({AVISO}, .16); }}
+    .estado.dim {{ background: alpha({fg}, .05); }}
+    .enorme {{ font-size: {T * 3.2:.1f}pt; font-weight: bold; }}
+    .dim {{ color: {dim}; }}
+    .fraco {{ color: alpha({fg}, .35); }}
+    .secao {{ color: {dim}; font-size: {T * .78:.1f}pt; font-weight: bold; letter-spacing: 1.5px; margin-top: 4px; }}
+    .bloco {{ background: alpha({fg}, .045); border-radius: 10px; padding: 8px 11px; }}
+    .bloco .rot {{ color: {dim}; font-size: {T * .8:.1f}pt; }}
+    .bloco .num {{ font-weight: bold; font-size: {T * 1.1:.1f}pt; }}
+    .legenda {{ color: alpha({fg}, .35); font-size: {T * .75:.1f}pt; }}
+    .painel {{ background: alpha({fg}, .03); border-radius: 10px; padding: 8px 6px 4px 6px; }}
+    .aviso, .aviso * {{ color: {AVISO}; }}
+    .perigo, .perigo * {{ color: {PERIGO}; }}
+    progressbar trough {{ min-height: 4px; min-width: 10px; background: alpha({fg}, .10); border: none; border-radius: 2px; }}
+    progressbar progress {{ min-height: 4px; background: {fg}; border: none; border-radius: 2px; }}
+    progressbar.aviso progress {{ background: {AVISO}; }}
+    progressbar.perigo progress {{ background: {PERIGO}; }}
+    scale {{ padding: 6px 0; }}
+    scale trough {{ min-height: 4px; background: alpha({fg}, .10); border: none; border-radius: 2px; }}
+    scale highlight {{ background: {fg}; border: none; border-radius: 2px; }}
+    scale slider {{ min-width: 14px; min-height: 14px; margin: -6px; background: {fg}; border: 3px solid {bg}; border-radius: 10px; }}
+    button {{ background: alpha({fg}, .06); background-image: none; border: 1px solid alpha({fg}, .06);
+              border-radius: 9px; padding: 6px 12px; min-height: 0; box-shadow: none; }}
+    button:hover {{ background: alpha({fg}, .13); }}
+    button:active {{ background: alpha({fg}, .20); }}
+    button.plano {{ background: transparent; border-color: transparent; padding: 5px 8px; }}
+    button.plano:hover {{ background: alpha({fg}, .08); }}
+    button.ativo {{ background: alpha({fg}, .10); }}
+    button.primario {{ background: {fg}; border-color: {fg}; }}
+    button.primario label {{ color: {bg}; }}
+    button.primario:hover {{ background: alpha({fg}, .85); }}
+    button.redondo {{ border-radius: 99px; min-width: 22px; min-height: 22px; padding: 8px; }}
+    scrolledwindow, viewport {{ background: transparent; border: none; }}
+    scrollbar {{ background: transparent; border: none; }}
+    scrollbar slider {{ background: alpha({fg}, .2); min-width: 4px; border-radius: 2px; border: none; }}
+    calendar {{ background: transparent; border: none; padding: 4px 2px; }}
+    calendar.header {{ border: none; background: transparent; }}
+    calendar.button {{ color: {dim}; background: transparent; border: none; }}
+    calendar:selected {{ background: {fg}; color: {bg}; border-radius: 6px; }}
+    calendar.highlight {{ color: {dim}; font-weight: bold; background: transparent; }}
+    calendar:indeterminate {{ color: alpha({fg}, .25); }}
+    """
+    p = Gtk.CssProvider()
+    p.load_from_data(css.encode())
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), p,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+    return fg
+
+
+def css(w, *classes):
+    for c in classes:
+        if c:
+            w.get_style_context().add_class(c)
+    return w
+
+
+def lbl(texto='', *classes, x=0, elip=None, markup=False):
+    l = Gtk.Label(xalign=x)
+    (l.set_markup if markup else l.set_text)(texto)
+    if elip:
+        l.set_ellipsize(elip)
+        l.set_max_width_chars(1)
+        l.set_hexpand(True)
+    return css(l, *classes)
+
+
+FIM, INICIO = Pango.EllipsizeMode.END, Pango.EllipsizeMode.START
+
+
+def classe(w, nova, todas=('aviso', 'perigo', 'dim')):
+    ctx = w.get_style_context()
+    for c in todas:
+        ctx.remove_class(c)
+    if nova:
+        ctx.add_class(nova)
+
+
+def barra():
+    b = Gtk.ProgressBar()
+    b.set_valign(Gtk.Align.CENTER)
+    b.set_hexpand(True)
+    return b
+
+
+def por_barra(b, frac, aviso=.7, perigo=.9):
+    b.set_fraction(max(0, min(1, frac)))
+    classe(b, nivel(frac, aviso, perigo))
+
+
+def botao(texto, acao, *classes, icone=None):
+    """Botão com ícone e texto lado a lado, com espaço entre eles."""
+    b = Gtk.Button()
+    caixa = Gtk.Box(spacing=8)
+    caixa.set_halign(Gtk.Align.CENTER)
+    if icone:
+        ic = lbl(icone)
+        if texto:
+            ic.set_margin_end(4)   # glifo da Nerd Font é mais largo que a célula: dá folga
+        caixa.pack_start(ic, False, False, 0)
+    if texto:
+        caixa.pack_start(lbl(texto), False, False, 0)
+    b.add(caixa)
+    b.connect('clicked', lambda *_: acao())
+    return css(b, *classes)
+
+
+def numero(valor, unidade=''):
+    """Número grande com a unidade menor e apagada ao lado."""
+    u = f"<span size='55%' alpha='60%'> {esc(unidade)}</span>" if unidade else ''
+    return f'{esc(valor)}{u}'
+
+
+class Grafico(Gtk.DrawingArea):
+    """Curva suave com degradê dos últimos N valores (1 ou 2 séries)."""
+
+    def __init__(self, cor, n=60, altura=46, teto=None):
+        super().__init__()
+        self.set_size_request(-1, altura)
+        self.cor = Gdk.RGBA()
+        self.cor.parse(cor)
+        self.n, self.teto, self.series = n, teto, [[], []]
+        self.connect('draw', self.desenhar)
+
+    def carregar(self, valores, serie=0):
+        self.series[serie] = list(valores)[-self.n:]
+        self.queue_draw()
+
+    def por(self, v, serie=0):
+        s = self.series[serie]
+        s.append(v)
+        del s[:-self.n]
+        self.queue_draw()
+
+    def desenhar(self, w, cr):
+        import cairo
+        larg, alt = w.get_allocated_width(), w.get_allocated_height()
+        topo = self.teto or max([1] + [v for s in self.series for v in s]) * 1.2
+        r, g, b = self.cor.red, self.cor.green, self.cor.blue
+        cr.set_line_width(1)
+        cr.set_dash([2, 4])
+        for f in (.33, .66):
+            cr.set_source_rgba(r, g, b, .07)
+            cr.move_to(0, int(alt * f) + .5)
+            cr.line_to(larg, int(alt * f) + .5)
+            cr.stroke()
+        cr.set_dash([])
+        for i in (1, 0):
+            s = self.series[i]
+            if len(s) < 2:
+                continue
+            passo = larg / (self.n - 1)
+            x0 = larg - passo * (len(s) - 1)
+            pts = [(x0 + j * passo, alt - 2 - (alt - 6) * min(v, topo) / topo) for j, v in enumerate(s)]
+            cr.move_to(*pts[0])
+            for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+                xm = (xa + xb) / 2
+                cr.curve_to(xm, ya, xm, yb, xb, yb)
+            linha = cr.copy_path()
+            a = 1 if i == 0 else .5
+            cr.line_to(pts[-1][0], alt)
+            cr.line_to(pts[0][0], alt)
+            cr.close_path()
+            grad = cairo.LinearGradient(0, 0, 0, alt)
+            grad.add_color_stop_rgba(0, r, g, b, .22 * a)
+            grad.add_color_stop_rgba(1, r, g, b, 0)
+            cr.set_source(grad)
+            cr.fill()
+            cr.append_path(linha)
+            cr.set_source_rgba(r, g, b, .95 * a)
+            cr.set_line_width(1.8 if i == 0 else 1.3)
+            cr.set_line_join(cairo.LINE_JOIN_ROUND)
+            cr.stroke()
+            if i == 0:
+                cr.arc(pts[-1][0] - 2, pts[-1][1], 2.6, 0, 2 * math.pi)
+                cr.set_source_rgba(r, g, b, 1)
+                cr.fill()
+
+
+HIST = os.path.join(RUN, 'barhist')
+
+
+def historico(nome, n=60):
+    """Últimos valores gravados pelo bloco da barra (um a cada 5 s)."""
+    try:
+        return [float(x) for x in open(os.path.join(HIST, nome)).read().split()[-n:]]
+    except (OSError, ValueError):
+        return []
+
+
+def painel(w, legenda=None):
+    if legenda:
+        caixa = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        caixa.pack_start(w, True, True, 0)
+        caixa.pack_start(lbl(legenda, 'legenda', x=1), False, False, 0)
+        w = caixa
+    c = css(Gtk.Box(), 'painel')
+    c.pack_start(w, True, True, 0)
+    return c
+
+
+class Blocos(Gtk.Grid):
+    """Blocos de número: rótulo pequeno em cima, valor em negrito embaixo."""
+
+    def __init__(self, colunas=2):
+        super().__init__(column_spacing=8, row_spacing=8, column_homogeneous=True)
+        self.colunas, self.itens = colunas, {}
+
+    def por(self, nome, valor, cls=''):
+        if nome not in self.itens:
+            i = len(self.itens)
+            caixa = css(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2), 'bloco')
+            caixa.pack_start(lbl(nome, 'rot', elip=FIM), False, False, 0)
+            v = lbl('', 'num', elip=FIM)
+            caixa.pack_start(v, False, False, 0)
+            self.attach(caixa, i % self.colunas, i // self.colunas, 1, 1)
+            self.itens[nome] = v
+            caixa.show_all()
+        self.itens[nome].set_text(str(valor))
+        classe(self.itens[nome], cls)
+
+
+class Tabela(Gtk.Grid):
+    """Linhas nome (apagado) | valor (à direita), criadas sob demanda."""
+
+    def __init__(self):
+        super().__init__(column_spacing=16, row_spacing=6)
+        self.linhas = {}
+
+    def por(self, nome, valor, cls=''):
+        if nome not in self.linhas:
+            i = len(self.linhas)
+            a, b = lbl(nome, 'dim'), lbl('', x=1, elip=INICIO)
+            self.attach(a, 0, i, 1, 1)
+            self.attach(b, 1, i, 1, 1)
+            self.linhas[nome] = b
+            a.show()
+            b.show()
+        self.linhas[nome].set_text(str(valor))
+        classe(self.linhas[nome], cls)
+
+
+class ListaBarras(Gtk.Grid):
+    """Linhas nome | barra fina | valor, criadas sob demanda."""
+
+    def __init__(self, larg_nome=0, larg_valor=7, larg_barra=-1):
+        super().__init__(column_spacing=12, row_spacing=8)
+        self.linhas, self.ln, self.lv, self.lb = {}, larg_nome, larg_valor, larg_barra
+
+    def por(self, chave, frac, texto, aviso=.7, perigo=.9, nome=None):
+        if chave not in self.linhas:
+            i = len(self.linhas)
+            a = lbl(nome or chave, 'dim', elip=None if self.ln else FIM)
+            if self.ln:
+                a.set_width_chars(self.ln)
+            b, c = barra(), lbl('', x=1)
+            if self.lb > 0:
+                b.set_size_request(self.lb, -1)
+                b.set_hexpand(False)
+                a.set_hexpand(True)
+            c.set_width_chars(self.lv)
+            self.attach(a, 0, i, 1, 1)
+            self.attach(b, 1, i, 1, 1)
+            self.attach(c, 2, i, 1, 1)
+            self.linhas[chave] = (a, b, c)
+            for w in (a, b, c):
+                w.show()
+        a, b, c = self.linhas[chave]
+        if nome:
+            a.set_text(nome)
+        por_barra(b, frac, aviso, perigo)
+        c.set_text(texto)
+
+
+class Ranking(ListaBarras):
+    """Top N: posição | nome | barra relativa ao primeiro | valor."""
+
+    def __init__(self, n=5):
+        super().__init__(larg_valor=8, larg_barra=60)
+        self.n = n
+
+    def mostrar(self, itens, fmt):
+        maior = max([v for _, v in itens] + [1e-9])
+        for i in range(self.n):
+            if i < len(itens):
+                nome, v = itens[i]
+                self.por(i, v / maior, fmt(v), 2, 2, nome=f'{nome}')
+            elif i in self.linhas:
+                self.por(i, 0, '', 2, 2, nome='—')
+
+
+def limpar(caixa):
+    for f in caixa.get_children():
+        caixa.remove(f)
+
+
+# ---------- pop-ups ----------
+
+class Pop:
+    icone, titulo, intervalo = '', '', 1.0
+
+    def __init__(self, fg):
+        self.fg = fg
+        self.corpo = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        cab = css(Gtk.Box(spacing=12), 'cabeca')
+        selo = css(Gtk.Box(), 'selo')
+        selo.set_valign(Gtk.Align.CENTER)
+        selo.set_hexpand(False)
+        self.l_icone = lbl(self.icone, x=.5)
+        self.l_icone.set_size_request(40, 40)
+        selo.pack_start(self.l_icone, False, False, 0)
+        tit = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        tit.set_valign(Gtk.Align.CENTER)
+        self.l_titulo = lbl(self.titulo, 'titulo', elip=FIM)
+        self.l_sub = lbl('', 'sub', elip=FIM)
+        self.l_sub.set_line_wrap(True)   # até 2 linhas antes de cortar com …
+        self.l_sub.set_lines(2)
+        tit.pack_start(self.l_titulo, False, False, 0)
+        tit.pack_start(self.l_sub, False, False, 0)
+        self.l_valor = lbl('', 'valor', x=1)
+        self.l_valor.set_valign(Gtk.Align.CENTER)
+        cab.pack_start(selo, False, False, 0)
+        cab.pack_start(tit, True, True, 0)
+        cab.pack_end(self.l_valor, False, False, 0)
+        self.corpo.pack_start(cab, False, False, 0)
+        self.montar()
+
+    def cabeca(self, valor=None, sub=None, cls='', icone=None, titulo=None, unidade=''):
+        if valor is not None:
+            # Número fica grande; estado em palavra (mudo, online...) vira um selo pequeno,
+            # para não roubar o espaço do título e do subtítulo.
+            palavra = bool(valor) and not any(ch.isdigit() for ch in valor)
+            self.l_valor.set_markup(esc(valor) if palavra else numero(valor, unidade))
+            classe(self.l_valor, 'estado' if palavra else 'valor', ('estado', 'valor'))
+            classe(self.l_valor, cls)
+        if sub is not None:
+            self.l_sub.set_text(sub)
+        if icone is not None:
+            self.l_icone.set_text(icone)
+        if titulo is not None:
+            self.l_titulo.set_text(titulo)
+
+    def add(self, w):
+        self.corpo.pack_start(w, False, False, 0)
+        return w
+
+    def secao(self, texto):
+        return self.add(lbl(texto.upper(), 'secao'))
+
+    def botoes(self, *bts):
+        caixa = Gtk.Box(spacing=8, homogeneous=True)
+        for b in bts:
+            caixa.pack_start(b, True, True, 0)
+        return self.add(caixa)
+
+    def montar(self):
+        pass
+
+    def atualizar(self):
+        pass
+
+
+def ler_cpu():
+    linhas = {}
+    for l in open('/proc/stat'):
+        if not l.startswith('cpu'):
+            break
+        p = l.split()
+        v = list(map(int, p[1:9]))
+        linhas[p[0]] = (sum(v), v[3] + v[4])
+    return linhas
+
+
+def ler_procs():
+    d = {}
+    for p in os.listdir('/proc'):
+        if not p.isdigit():
+            continue
+        try:
+            s = open(f'/proc/{p}/stat').read()
+        except OSError:
+            continue
+        r = s.rfind(')')
+        f = s[r + 2:].split()
+        d[p] = (s[s.find('(') + 1:r], int(f[11]) + int(f[12]))
+    return d
+
+
+class Cpu(Pop):
+    icone, titulo = '', 'Processador'
+
+    def montar(self):
+        self.ncpu = os.cpu_count()
+        modelo = re.search(r'model name\s*:\s*(.*)', ler('/proc/cpuinfo'))
+        self.modelo = re.sub(r'\(R\)|\(TM\)|CPU |@.*', '', modelo.group(1)).strip() if modelo else ''
+        self.graf = Grafico(self.fg, teto=100)
+        self.add(painel(self.graf, 'últimos 5 min'))
+        self.blocos = self.add(Blocos())
+        self.secao('Threads')
+        grade = Gtk.Grid(column_spacing=18, row_spacing=0, column_homogeneous=True)
+        self.add(grade)
+        self.barras = []
+        for i in range(self.ncpu):
+            g = ListaBarras(larg_nome=2, larg_valor=4)
+            grade.attach(g, i % 2, i // 2, 1, 1)
+            self.barras.append(g)
+        grade.set_row_spacing(8)
+        self.secao('Mais pesados agora')
+        self.top = self.add(Ranking())
+        self.ant, self.procs_ant = ler_cpu(), ler_procs()
+
+    def atualizar(self):
+        agora, procs = ler_cpu(), ler_procs()
+        uso = {}
+        for k, (t, ocioso) in agora.items():
+            t0, o0 = self.ant.get(k, (0, 0))
+            dt = t - t0
+            uso[k] = 0 if dt <= 0 else (dt - (ocioso - o0)) / dt
+        dtot = agora['cpu'][0] - self.ant['cpu'][0]
+        self.ant = agora
+        total = uso.get('cpu', 0)
+        self.cabeca(f'{total * 100:.0f}', self.modelo, nivel(total), unidade='%')
+        self.graf.carregar(historico('cpu'))
+        for i, g in enumerate(self.barras):
+            u = uso.get(f'cpu{i}', 0)
+            g.por(str(i), u, f'{u * 100:.0f}%')
+        mhz = [float(x) for x in re.findall(r'cpu MHz\s*:\s*([\d.]+)', ler('/proc/cpuinfo'))]
+        if mhz:
+            self.blocos.por('Frequência', f'{sum(mhz) / len(mhz) / 1000:.2f} GHz')
+        c1, c5, c15, ativos, _ = ler('/proc/loadavg').split()
+        self.blocos.por('Carga 1·5·15 min', f'{c1} {c5} {c15}')
+        self.blocos.por('Processos', f'{len(procs)}')
+        up = float(ler('/proc/uptime').split()[0])
+        self.blocos.por('Ligado há', f'{int(up // 86400)}d {int(up % 86400 // 3600)}h {int(up % 3600 // 60)}m')
+        por_nome = {}
+        for pid, (nome, t) in procs.items():
+            if pid in self.procs_ant:
+                por_nome[nome] = por_nome.get(nome, 0) + t - self.procs_ant[pid][1]
+        self.procs_ant = procs
+        if dtot > 0:
+            um = dtot / self.ncpu
+            itens = sorted(((n, d / um * 100) for n, d in por_nome.items()), key=lambda x: -x[1])[:5]
+            self.top.mostrar(itens, lambda v: f'{v:.0f}%')
+
+
+def coretemp():
+    for h in glob.glob('/sys/class/hwmon/hwmon*'):
+        if ler(h + '/name') == 'coretemp':
+            return h
+    return None
+
+
+class Temp(Pop):
+    icone, titulo, intervalo = '', 'Temperatura', 2
+
+    def montar(self):
+        self.h = coretemp()
+        self.crit = int(ler(f'{self.h}/temp1_crit', '100000')) // 1000 if self.h else 100
+        self.graf = Grafico(self.fg)
+        self.add(painel(self.graf, 'últimos 5 min'))
+        self.secao('Núcleos')
+        self.nucleos = self.add(ListaBarras(larg_nome=9, larg_valor=6))
+        self.secao('Outros sensores')
+        self.blocos = self.add(Blocos())
+
+    def atualizar(self):
+        if not self.h:
+            self.cabeca('?', 'coretemp não encontrado')
+            return
+        rotulos = sorted(glob.glob(self.h + '/temp*_label'), key=lambda p: int(re.findall(r'\d+', os.path.basename(p))[0]))
+        for r in rotulos:
+            nome = ler(r)
+            t = int(ler(r[:-6] + '_input', '0')) // 1000
+            if nome.startswith('Package'):
+                self.cabeca(str(t), f'Package · máx {self.crit} °C', nivel(t / 100, .7, .85), unidade='°C')
+                self.graf.carregar(historico('temp'))
+            elif nome.startswith('Core'):
+                self.nucleos.por('Núcleo ' + nome.split()[-1], t / 100, f'{t} °C', .7, .85)
+        for h in glob.glob('/sys/class/hwmon/hwmon*'):
+            nome = ler(h + '/name')
+            if nome in ('coretemp', '') or not os.path.exists(h + '/temp1_input'):
+                continue
+            t = int(ler(h + '/temp1_input', '0')) // 1000
+            self.blocos.por({'pch_skylake': 'Chipset (PCH)', 'acpitz': 'Placa (ACPI)'}.get(nome, nome), f'{t} °C')
+        bat = ler('/sys/class/power_supply/BAT0/capacity')
+        if bat:
+            est = ler('/sys/class/power_supply/BAT0/status')
+            est = {'Full': 'cheia', 'Charging': 'carregando', 'Discharging': 'descarregando',
+                   'Not charging': 'parada'}.get(est, est.lower())
+            self.blocos.por('Bateria', f'{bat}% · {est}')
+
+
+def meminfo():
+    m = {}
+    for l in open('/proc/meminfo'):
+        k, v = l.split(':')
+        m[k] = int(v.split()[0]) * 1024
+    return m
+
+
+class Mem(Pop):
+    icone, titulo, intervalo = '\U000f035b', 'Memória', 2
+
+    def montar(self):
+        self.graf = Grafico(self.fg, teto=100)
+        self.add(painel(self.graf, 'últimos 5 min'))
+        self.barras = self.add(ListaBarras(larg_nome=5, larg_valor=8))
+        self.blocos = self.add(Blocos())
+        self.secao('Quem mais usa')
+        self.top = self.add(Ranking())
+
+    def atualizar(self):
+        m = meminfo()
+        total, disp = m['MemTotal'], m['MemAvailable']
+        usada = total - disp
+        cache = m['Cached'] + m['Buffers'] + m.get('SReclaimable', 0) - m.get('Shmem', 0)
+        v, u = tam(usada).split()
+        self.cabeca(v, f'de {tam(total)} · {usada / total * 100:.0f}% em uso', nivel(usada / total, .75, .9), unidade=u)
+        self.graf.carregar(historico('mem'))
+        self.barras.por('RAM', usada / total, f'{usada / total * 100:.0f}%', .75, .9)
+        st, sl = m['SwapTotal'], m['SwapFree']
+        if st:
+            self.barras.por('Swap', (st - sl) / st, f'{(st - sl) / st * 100:.0f}%', .5, .8)
+        self.blocos.por('Disponível', tam(disp))
+        self.blocos.por('Cache e buffers', tam(cache))
+        self.blocos.por('Compartilhada', tam(m.get('Shmem', 0)))
+        if st:
+            self.blocos.por('Swap (zram)', f'{tam(st - sl)} / {tam(st)}')
+        rss = {}
+        for l in sh('ps', '-eo', 'comm=,rss=').splitlines():
+            p = l.rsplit(None, 1)
+            if len(p) == 2 and p[1].isdigit():
+                n, k = rss.get(p[0], (0, 0))
+                rss[p[0]] = (n + 1, k + int(p[1]) * 1024)
+        itens = sorted(rss.items(), key=lambda x: -x[1][1])[:5]
+        self.top.mostrar([(f'{n}' + (f' ×{c}' if c > 1 else ''), b) for n, (c, b) in itens], tam)
+
+
+def discos_io():
+    r = w = 0
+    for l in open('/proc/diskstats'):
+        p = l.split()
+        if re.fullmatch(r'sd[a-z]+|nvme\d+n\d+|mmcblk\d+', p[2]):
+            r += int(p[5]) * 512
+            w += int(p[9]) * 512
+    return r, w
+
+
+class Hdd(Pop):
+    icone, titulo, intervalo = '', 'Armazenamento', 1
+
+    def montar(self):
+        self.graf = Grafico(self.fg)
+        self.add(painel(self.graf, 'ao vivo · leitura e escrita'))
+        self.blocos = self.add(Blocos())
+        self.secao('Partições')
+        self.lista = self.add(ListaBarras(larg_valor=13))
+        self.io0, self.t0, self.n = discos_io(), time.time(), 0
+
+    def atualizar(self):
+        io, t = discos_io(), time.time()
+        dt = max(t - self.t0, .1)
+        r, w = (io[0] - self.io0[0]) / dt, (io[1] - self.io0[1]) / dt
+        self.io0, self.t0 = io, t
+        self.graf.por(r, 0)
+        self.graf.por(w, 1)
+        self.blocos.por('Leitura', taxa(r))
+        self.blocos.por('Escrita', taxa(w))
+        if self.n % 5 == 0:   # df a cada 5 s basta
+            out = sh('df', '-B1', '--output=source,size,used,pcent,target',
+                     '-x', 'tmpfs', '-x', 'devtmpfs', '-x', 'efivarfs', '-x', 'overlay')
+            vistos = set()
+            for l in out.splitlines()[1:]:
+                src, tamanho, usado, pct, alvo = l.split(None, 4)
+                if src in vistos or not src.startswith('/dev/'):
+                    continue
+                vistos.add(src)
+                frac = int(usado) / max(int(tamanho), 1)
+                nome = alvo.replace(os.path.expanduser('~'), '~')
+                self.lista.por(nome, frac, f'{tam(int(usado))} / {tam(int(tamanho))}', .8, .92)
+                if alvo == '/':
+                    self.cabeca(pct.rstrip('%'), f'{tam(int(tamanho) - int(usado))} livres na raiz',
+                                nivel(frac, .8, .92), unidade='%')
+        self.n += 1
+
+
+class Upd(Pop):
+    icone, titulo, intervalo = '', 'Atualizações', 0
+
+    CACHE = os.path.join(HIST, 'upd')   # gravado pelo bloco s_upd a cada verificação
+
+    def montar(self):
+        self.cabeca('…', 'Verificando pacotes')
+        rol = Gtk.ScrolledWindow()
+        rol.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        rol.set_overlay_scrolling(False)   # barra de rolagem sempre visível: mostra que dá para rolar
+        rol.set_max_content_height(320)
+        rol.set_propagate_natural_height(True)
+        self.rol = rol
+        self.lista = Gtk.Grid(column_spacing=14, row_spacing=6)
+        self.lista.set_margin_end(8)
+        rol.add(self.lista)
+        self.add(rol)
+        self.botoes(botao('Atualizar agora', self.atualizar_agora, 'primario', icone=''))
+        # Mostra na hora a última lista que o bloco da barra gravou; confere de novo em fundo.
+        try:
+            idade = time.time() - os.path.getmtime(self.CACHE)
+            self.mostrar(self.ler_cache(), f'há {int(idade // 60)} min · conferindo…')
+        except OSError:
+            pass
+        em_fundo(self.buscar, self.mostrar)
+
+    @classmethod
+    def ler_cache(cls):
+        try:
+            return [(l[2:], l[0] == 'A') for l in open(cls.CACHE).read().splitlines() if len(l) > 2]
+        except OSError:
+            return []
+
+    @classmethod
+    def buscar(cls):
+        oficiais = sh('checkupdates', timeout=60).splitlines()
+        aur = sh('yay', '-Qua', timeout=60).splitlines()
+        pacotes = [(l, False) for l in oficiais if l] + [(l, True) for l in aur if l]
+        try:
+            os.makedirs(HIST, exist_ok=True)
+            with open(cls.CACHE, 'w') as f:
+                f.writelines(('A ' if a else 'R ') + l + '\n' for l, a in pacotes)
+        except OSError:
+            pass
+        return pacotes
+
+    def mostrar(self, pacotes, nota=None):
+        n_aur = sum(1 for _, a in pacotes if a)
+        resumo = 'Tudo em dia' if not pacotes else f'{len(pacotes) - n_aur} repo · {n_aur} AUR'
+        self.cabeca(str(len(pacotes)), f'{resumo} · {nota}' if nota else resumo,
+                    'aviso' if len(pacotes) > 50 else '', unidade='pacotes')
+        limpar(self.lista)
+        for i, (l, aur) in enumerate(pacotes):
+            p = l.split()
+            nome = lbl(p[0], elip=FIM)
+            if aur:
+                nome.set_markup(f"{esc(p[0])} <span alpha='55%' size='85%'>AUR</span>")
+            versao = lbl(p[3] if len(p) >= 4 else '', 'dim', x=1)
+            versao.set_ellipsize(INICIO)
+            versao.set_max_width_chars(16)
+            versao.set_tooltip_text(f'{p[1]} → {p[3]}' if len(p) >= 4 else '')
+            self.lista.attach(nome, 0, i, 1, 1)
+            self.lista.attach(versao, 1, i, 1, 1)
+        self.lista.show_all()
+        _, alt = self.lista.get_preferred_height()
+        self.rol.set_min_content_height(min(320, alt))
+        self.rol.set_visible(bool(pacotes))
+
+    def atualizar_agora(self):
+        solto('st -e sh -c "atualizar && kill -42 $(pidof dwmblocks) >/dev/null 2>&1 && teclado; exec zsh"')
+        sair()
+
+
+class Audio(Pop):
+    """Base do som (saída) e do microfone (entrada)."""
+    intervalo = 1
+    alvo = tipo_pa = sinal = ''
+    ic_on = ic_off = ''
+
+    def montar(self):
+        self.mexendo = self.ignorar = False
+        linha = Gtk.Box(spacing=10)
+        self.mudo = botao('', self.alternar_mudo, 'redondo', icone=self.ic_on)
+        self.mudo.set_valign(Gtk.Align.CENTER)
+        self.escala = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        self.escala.set_draw_value(False)
+        self.escala.set_hexpand(True)
+        self.escala.set_valign(Gtk.Align.CENTER)
+        self.escala.connect('value-changed', self.mudou)
+        self.escala.connect('button-press-event', lambda *_: setattr(self, 'mexendo', True))
+        self.escala.connect('button-release-event', lambda *_: setattr(self, 'mexendo', False))
+        linha.pack_start(self.mudo, False, False, 0)
+        linha.pack_start(self.escala, True, True, 0)
+        self.add(linha)
+        self.secao('Dispositivo')
+        self.devs = self.add(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2))
+        self.nomes_devs = None
+        self.botoes(botao('Abrir mixer', lambda: (solto('xdotool key --clearmodifiers Super_L+F6'), sair()),
+                          icone=''))
+
+    def estado(self):
+        p = sh('wpctl', 'get-volume', self.alvo).split()
+        vol = round(float(p[1]) * 100) if len(p) > 1 else 0
+        return vol, '[MUTED]' in p
+
+    def atualizar(self):
+        vol, mudo = self.estado()
+        if mudo:
+            self.cabeca('mudo', None, 'dim', icone=self.ic_off)
+        else:
+            self.cabeca(str(vol), None, '', icone=self.ic_on, unidade='%')
+        self.mudo.get_child().get_children()[0].set_text(self.ic_off if mudo else self.ic_on)
+        self.escala.set_opacity(.35 if mudo else 1)   # mudo: volume continua guardado, mas apagado
+        if not self.mexendo:
+            self.ignorar = True
+            self.escala.set_value(vol)
+            self.ignorar = False
+        try:
+            lista = json.loads(sh('pactl', '-f', 'json', 'list', self.tipo_pa) or '[]')
+        except ValueError:
+            lista = []
+        padrao = sh('pactl', 'get-default-' + self.tipo_pa[:-1]).strip()
+        lista = [d for d in lista if not d['name'].endswith('.monitor')]
+        self.cabeca(sub=next((d['description'] for d in lista if d['name'] == padrao), padrao))
+        chave = [(d['name'], d['name'] == padrao) for d in lista]
+        if chave != self.nomes_devs:
+            self.nomes_devs = chave
+            limpar(self.devs)
+            for d in lista:
+                eh = d['name'] == padrao
+                b = Gtk.Button()
+                caixa = Gtk.Box(spacing=10)
+                caixa.pack_start(lbl('' if eh else '', '' if eh else 'fraco'), False, False, 0)
+                caixa.pack_start(lbl(d['description'], '' if eh else 'dim', elip=FIM), True, True, 0)
+                b.add(caixa)
+                b.connect('clicked', lambda _, n=d['name']: self.escolher(n))
+                css(b, 'plano', 'ativo' if eh else '')
+                self.devs.pack_start(b, False, False, 0)
+            self.devs.show_all()
+
+    def mudou(self, esc_):
+        if not self.ignorar:
+            sh('wpctl', 'set-volume', self.alvo, f'{esc_.get_value() / 100:.2f}')
+            sinal_barra(self.sinal)
+            self.cabeca(f'{esc_.get_value():.0f}', unidade='%')
+
+    def alternar_mudo(self):
+        sh('wpctl', 'set-mute', self.alvo, 'toggle')
+        sinal_barra(self.sinal)
+        self.atualizar()
+
+    def escolher(self, nome):
+        sh('pactl', 'set-default-' + self.tipo_pa[:-1], nome)
+        sinal_barra(self.sinal)
+        self.atualizar()
+
+
+class Vol(Audio):
+    titulo, alvo, tipo_pa, sinal = 'Som', '@DEFAULT_AUDIO_SINK@', 'sinks', 7
+    icone = ic_on = '\U000f057e'
+    ic_off = '\U000f0581'
+
+
+class Mic(Audio):
+    titulo, alvo, tipo_pa, sinal = 'Microfone', '@DEFAULT_AUDIO_SOURCE@', 'sources', 9
+    icone = ic_on = ''
+    ic_off = ''
+
+
+def iface_padrao():
+    m = re.search(r'dev (\S+)', sh('ip', 'route', 'show', 'default'))
+    return m.group(1) if m else ''
+
+
+def bytes_iface(i):
+    return (int(ler(f'/sys/class/net/{i}/statistics/rx_bytes', '0')),
+            int(ler(f'/sys/class/net/{i}/statistics/tx_bytes', '0')))
+
+
+class Net(Pop):
+    icone, titulo, intervalo = '\U000f05a9', 'Rede', 1
+
+    def montar(self):
+        self.graf = Grafico(self.fg)
+        self.add(painel(self.graf, 'ao vivo · download e upload'))
+        self.blocos = self.add(Blocos())
+        self.secao('Conexão')
+        self.tab = self.add(Tabela())
+        self.botoes(botao('Gerenciar redes', lambda: (solto('st -e sh -c "nmtui; exec zsh"'), sair()),
+                          icone=''))
+        self.iface = iface_padrao()
+        self.b0, self.t0, self.n = bytes_iface(self.iface), time.time(), 0
+        self.blocos.por('Download', '—')
+        self.blocos.por('Upload', '—')
+        self.blocos.por('Latência', '…')
+        self.blocos.por('Sinal', '—')
+        self.medir_ping()
+        self.info()
+
+    def medir_ping(self):
+        def f():
+            m = re.search(r'time=([\d.]+)', sh('ping', '-c', '1', '-W', '2', '9.9.9.9', c=True))
+            return float(m.group(1)) if m else None
+
+        def pronto(ms):
+            if ms is None:
+                self.cabeca('offline', None, 'perigo', icone='\U000f16c5')
+                self.blocos.por('Latência', 'sem resposta', 'perigo')
+            else:
+                self.cabeca('online', None, '', icone='\U000f05a9')
+                self.blocos.por('Latência', f'{ms:.0f} ms', nivel(ms / 200, .5, .9))
+        em_fundo(f, pronto)
+
+    def info(self):
+        i = self.iface
+        if not i:
+            self.cabeca('offline', 'Sem rota padrão', 'perigo', icone='\U000f16c5')
+            return
+        link = sh('iw', 'dev', i, 'link')
+        ssid = re.search(r'SSID: (.*)', link)
+        sinal = re.search(r'signal: (-?\d+)', link)
+        rate = re.search(r'rx bitrate: ([\d.]+) MBit/s', link)
+        freq = re.search(r'freq: ([\d.]+)', link)
+        self.cabeca(sub=ssid.group(1) if ssid else i)
+        self.tab.por('Interface', i)
+        if ssid:
+            dbm = int(sinal.group(1)) if sinal else -100
+            q = max(0, min(100, 2 * (dbm + 100)))
+            self.blocos.por('Sinal', f'{q}% · {dbm} dBm', nivel(1 - q / 100, .5, .7))
+            if freq:
+                self.tab.por('Faixa', f'{float(freq.group(1)) / 1000:.1f} GHz')
+            if rate:
+                self.tab.por('Link', f'{float(rate.group(1)):.0f} Mbit/s')
+        ip = re.search(r'inet (\S+)', sh('ip', '-4', '-o', 'addr', 'show', i))
+        self.tab.por('IP local', ip.group(1).split('/')[0] if ip else '—')
+        gw = re.search(r'via (\S+)', sh('ip', 'route', 'show', 'default'))
+        self.tab.por('Roteador', gw.group(1) if gw else '—')
+        ts = re.search(r'inet (\S+)', sh('ip', '-4', '-o', 'addr', 'show', 'tailscale0'))
+        if ts:
+            self.tab.por('Tailscale', ts.group(1).split('/')[0])
+
+    def atualizar(self):
+        if not self.iface:
+            return
+        b, t = bytes_iface(self.iface), time.time()
+        dt = max(t - self.t0, .1)
+        rx, tx = (b[0] - self.b0[0]) / dt, (b[1] - self.b0[1]) / dt
+        self.b0, self.t0 = b, t
+        self.graf.por(rx, 0)
+        self.graf.por(tx, 1)
+        self.blocos.por('Download', taxa(rx))
+        self.blocos.por('Upload', taxa(tx))
+        self.n += 1
+        if self.n % 3 == 0:
+            self.medir_ping()
+        if self.n % 5 == 0:
+            self.info()
+
+
+class Vpn(Pop):
+    icone, titulo, intervalo = '', 'VPN', 3
+
+    def montar(self):
+        self.secao('Mullvad')
+        self.mull = self.add(Tabela())
+        self.bts = self.botoes(botao('Conectar', lambda: self.mullvad('connect'), icone=''),
+                               botao('Desconectar', lambda: self.mullvad('disconnect'), icone=''))
+        self.secao('Tailscale')
+        self.ts = self.add(Tabela())
+        self.secao('Aparelhos na rede')
+        self.pares = self.add(Gtk.Grid(column_spacing=10, row_spacing=6))
+        self.linhas_pares = {}
+
+    def mullvad(self, acao):
+        sh('mullvad', acao)
+        sinal_barra(21)
+        GLib.timeout_add(1500, lambda: self.atualizar() and False)
+
+    def atualizar(self):
+        st = sh('mullvad', 'status', '-v')
+        if not st or 'error' in st.lower():
+            self.mull.por('Estado', 'serviço parado', 'dim')
+            self.bts.set_sensitive(False)
+            ligado = False
+        else:
+            self.bts.set_sensitive(True)
+            ligado = st.startswith('Connected')
+            self.mull.por('Estado', st.splitlines()[0].strip(), '' if ligado else 'aviso')
+            for chave, nome in (('Relay', 'Servidor'), ('Visible location', 'Local visível')):
+                m = re.search(chave + r':\s*(.*)', st)
+                if m:
+                    self.mull.por(nome, m.group(1).strip())
+        try:
+            d = json.loads(sh('tailscale', 'status', '--json') or '{}')
+        except ValueError:
+            d = {}
+        eu = d.get('Self') or {}
+        ts_ok = d.get('BackendState') == 'Running'
+        self.ts.por('Estado', 'conectado' if ts_ok else (d.get('BackendState') or 'parado').lower(),
+                    '' if ts_ok else 'aviso')
+        if eu:
+            self.ts.por('Este PC', (eu.get('TailscaleIPs') or [''])[0])
+        for p in (d.get('Peer') or {}).values():
+            nome, on = p.get('HostName', '?'), p.get('Online')
+            if nome not in self.linhas_pares:
+                i = len(self.linhas_pares)
+                w = (lbl(''), lbl(nome, elip=FIM), lbl('', 'dim', x=1))
+                for j, x in enumerate(w):
+                    self.pares.attach(x, j, i, 1, 1)
+                    x.show()
+                self.linhas_pares[nome] = w
+            ponto, l_nome, l_ip = self.linhas_pares[nome]
+            ponto.set_text('' if on else '')
+            classe(ponto, '' if on else 'dim')
+            classe(l_nome, '' if on else 'dim')
+            l_ip.set_text((p.get('TailscaleIPs') or [''])[0])
+        self.cabeca('ativa' if ligado else ('tailnet' if ts_ok else 'off'),
+                    'Mullvad ligado' if ligado else 'Mullvad desligado', '' if ligado or ts_ok else 'aviso')
+
+
+class Capa(Gtk.DrawingArea):
+    """Capa do álbum com cantos arredondados; sem imagem, mostra uma nota musical."""
+
+    def __init__(self, fg, lado=84):
+        super().__init__()
+        self.set_size_request(lado, lado)
+        self.lado, self.pix = lado, None
+        self.cor = Gdk.RGBA()
+        self.cor.parse(fg)
+        self.connect('draw', self.desenhar)
+
+    def por(self, caminho):
+        try:
+            self.pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(caminho, self.lado, self.lado, False) if caminho else None
+        except GLib.Error:
+            self.pix = None
+        self.queue_draw()
+
+    def desenhar(self, w, cr):
+        l, r = self.lado, 12
+        cr.new_sub_path()
+        cr.arc(l - r, r, r, -math.pi / 2, 0)
+        cr.arc(l - r, l - r, r, 0, math.pi / 2)
+        cr.arc(r, l - r, r, math.pi / 2, math.pi)
+        cr.arc(r, r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.clip()
+        if self.pix:
+            Gdk.cairo_set_source_pixbuf(cr, self.pix, 0, 0)
+            cr.paint()
+            return
+        cr.set_source_rgba(self.cor.red, self.cor.green, self.cor.blue, .08)
+        cr.paint()
+        cr.set_source_rgba(self.cor.red, self.cor.green, self.cor.blue, .45)
+        cr.select_font_face(FONTE)
+        cr.set_font_size(l * .38)
+        ext = cr.text_extents('')
+        cr.move_to((l - ext.width) / 2 - ext.x_bearing, (l - ext.height) / 2 - ext.y_bearing)
+        cr.show_text('')
+
+
+class Musica(Pop):
+    intervalo = 1
+    player = ''
+
+    def montar(self):
+        topo = Gtk.Box(spacing=14)
+        self.capa = Capa(self.fg)
+        self.capa_url = None
+        topo.pack_start(self.capa, False, False, 0)
+        txt = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        txt.set_valign(Gtk.Align.CENTER)
+        self.l_musica = lbl('', 'titulo', elip=FIM)
+        self.l_artista = lbl('', elip=FIM)
+        self.l_album = lbl('', 'sub', elip=FIM)
+        for l in (self.l_musica, self.l_artista, self.l_album):
+            txt.pack_start(l, False, False, 0)
+        topo.pack_start(txt, True, True, 0)
+        self.add(topo)
+        prog = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.prog = barra()
+        prog.pack_start(self.prog, False, False, 0)
+        tempos = Gtk.Box()
+        self.l_pos, self.l_dur = lbl('', 'sub'), lbl('', 'sub', x=1)
+        tempos.pack_start(self.l_pos, True, True, 0)
+        tempos.pack_end(self.l_dur, True, True, 0)
+        prog.pack_start(tempos, False, False, 0)
+        self.add(prog)
+        ctl = Gtk.Box(spacing=14)
+        ctl.set_halign(Gtk.Align.CENTER)
+        self.b_play = botao('', lambda: self.comando('toggle'), 'redondo', 'primario', icone='')
+        for b in (botao('', lambda: self.comando('prev'), 'redondo', 'plano', icone=''), self.b_play,
+                  botao('', lambda: self.comando('next'), 'redondo', 'plano', icone='')):
+            b.set_valign(Gtk.Align.CENTER)
+            ctl.pack_start(b, False, False, 0)
+        self.add(ctl)
+        self.extra()
+
+    def extra(self):
+        pass
+
+    def comando(self, c):
+        self.enviar(c)
+        sinal_barra(11 if self.player == 'cmus' else 18)
+        GLib.timeout_add(300, lambda: self.atualizar() and False)
+
+    def mostrar(self, status, artista, musica, album, pos, dur, arte=None):
+        if status is None:
+            self.cabeca('', 'Nada tocando')
+            self.l_musica.set_text('Player fechado')
+            for l in (self.l_artista, self.l_album, self.l_pos, self.l_dur):
+                l.set_text('')
+            self.prog.set_fraction(0)
+            return
+        tocando = status.lower() == 'playing'
+        self.cabeca('', 'Tocando agora' if tocando else 'Pausado')
+        self.b_play.get_child().get_children()[0].set_text('' if tocando else '')
+        self.l_musica.set_text(musica or '—')
+        self.l_artista.set_text(artista or '')
+        self.l_album.set_text(album or '')
+        self.prog.set_fraction(pos / dur if dur else 0)
+        self.l_pos.set_text(duracao(pos))
+        self.l_dur.set_text(duracao(dur) if dur else '')
+        if arte and arte != self.capa_url:
+            self.capa_url = arte
+            em_fundo(lambda: baixar_capa(arte), self.capa.por)
+
+
+def baixar_capa(url):
+    if url.startswith('file://'):
+        return url[7:]
+    destino = os.path.join(RUN, 'barpop-capa-' + hashlib.md5(url.encode()).hexdigest()[:12])
+    if not os.path.exists(destino):
+        try:
+            with urllib.request.urlopen(url, timeout=4) as r:
+                open(destino, 'wb').write(r.read())
+        except OSError:
+            return None
+    return destino
+
+
+class Cmus(Musica):
+    icone, titulo, player = '', 'cmus', 'cmus'
+
+    def extra(self):
+        self.botoes(botao('Abrir cmus', lambda: (solto('xdotool key --clearmodifiers Super_L+F4'), sair()),
+                          icone=''))
+
+    def enviar(self, c):
+        sh('cmus-remote', {'toggle': '-u', 'prev': '-r', 'next': '-n'}[c])
+
+    def atualizar(self):
+        q = sh('cmus-remote', '-Q')
+        if not q:
+            return self.mostrar(None, *[''] * 3, 0, 0)
+        tag = lambda k: (re.search(rf'^tag {k} (.*)$', q, re.M) or [None, ''])[1]
+        val = lambda k: (re.search(rf'^{k} (.*)$', q, re.M) or [None, ''])[1]
+        self.mostrar(val('status'), tag('artist'), tag('title') or os.path.basename(val('file')), tag('album'),
+                     int(val('position') or 0), int(val('duration') or 0))
+
+
+class Spotify(Musica):
+    icone, titulo, player = '', 'Spotify', 'spotify'
+
+    def enviar(self, c):
+        sh('playerctl', '-p', 'spotify', {'toggle': 'play-pause', 'prev': 'previous', 'next': 'next'}[c])
+
+    def atualizar(self):
+        f = sh('playerctl', '-p', 'spotify', 'metadata', '--format',
+               '{{status}}\t{{artist}}\t{{title}}\t{{album}}\t{{position}}\t{{mpris:length}}\t{{mpris:artUrl}}')
+        p = f.rstrip('\n').split('\t')
+        if len(p) < 7:
+            return self.mostrar(None, *[''] * 3, 0, 0)
+        num = lambda s: int(s) // 1_000_000 if s.isdigit() else 0
+        self.mostrar(p[0], p[1], p[2], p[3], num(p[4]), num(p[5]), p[6] or None)
+
+
+class Data(Pop):
+    icone, titulo, intervalo = '\U000f00ed', 'Calendário', 1
+
+    def montar(self):
+        self.l_hora = self.add(lbl('', 'enorme', x=.5, markup=True))
+        cal = Gtk.Calendar()
+        cal.set_display_options(Gtk.CalendarDisplayOptions.SHOW_HEADING |
+                                Gtk.CalendarDisplayOptions.SHOW_DAY_NAMES |
+                                Gtk.CalendarDisplayOptions.SHOW_WEEK_NUMBERS)
+        self.add(painel(cal))
+        cal.mark_day(time.localtime().tm_mday)
+
+        def mes(c):
+            c.clear_marks()
+            a, m, _ = c.get_date()
+            agora = time.localtime()
+            if (a, m + 1) == (agora.tm_year, agora.tm_mon):
+                c.mark_day(agora.tm_mday)
+        cal.connect('month-changed', mes)
+        self.blocos = self.add(Blocos(colunas=3))
+
+    def atualizar(self):
+        t = time.localtime()
+        self.l_hora.set_markup(time.strftime('%H:%M', t) + f"<span size='45%' alpha='50%'>{time.strftime(':%S', t)}</span>")
+        self.cabeca(time.strftime('%d', t), time.strftime('%A, %d de %B de %Y', t).capitalize(),
+                    unidade=time.strftime('%b', t))
+        self.blocos.por('Semana', time.strftime('%V', t))
+        self.blocos.por('Dia do ano', f'{t.tm_yday}')
+        self.blocos.por('UTC', time.strftime('%H:%M', time.gmtime()))
+
+
+CLASSES = dict(cpu=Cpu, temp=Temp, mem=Mem, hdd=Hdd, upd=Upd, vol=Vol, mic=Mic,
+               net=Net, vpn=Vpn, cmus=Cmus, spotify=Spotify, data=Data)
+
+
+# ---------- janela ----------
+
+def sair(*_):
+    try:
+        if open(PID).read().split()[0] == str(os.getpid()):
+            os.remove(PID)
+    except (OSError, IndexError):
+        pass
+    GLib.idle_add(Gtk.main_quit)
+    return False
+
+
+def barra_sob_mouse(mx, my):
+    out = sh('xwininfo', '-root', '-tree')
+    melhor = None
+    for m in re.finditer(r'\("dwm" "dwm"\)\s+(\d+)x(\d+)\+(-?\d+)\+(-?\d+)', out):
+        w, h, x, y = map(int, m.groups())
+        if w > 10 and x <= mx < x + w and (melhor is None or abs(my - y) < melhor[0]):
+            melhor = (abs(my - y), (x, y, w, h))
+    return melhor[1] if melhor else None
+
+
+def main():
+    fg = instalar_css()
+    pop = CLASSES[TIPO](fg)
+    win = Gtk.Window(type=Gtk.WindowType.POPUP)   # override-redirect: o dwm não mexe na posição
+    win.set_title('barpop')
+    tela = win.get_screen()
+    if tela.get_rgba_visual():
+        win.set_visual(tela.get_rgba_visual())
+        win.set_app_paintable(True)
+    fundo = Gtk.CssProvider()
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), fundo,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)
+    atual = [None]
+
+    def acompanhar_st():
+        # Mesma transparência do terminal, ao vivo; sem compositor (picom desligado) fica sólido.
+        a = vidro() if tela.is_composited() else 1.0
+        if a != atual[0]:
+            atual[0] = a
+            fundo.load_from_data(f'.cartao {{ background: alpha({cores()[0]}, {a:.2f}); }}'.encode())
+        return True
+    acompanhar_st()
+    GLib.timeout_add(300, acompanhar_st)
+    margem = 0
+    cartao = css(Gtk.Box(), 'cartao')
+    for lado in ('start', 'end', 'top', 'bottom'):
+        getattr(pop.corpo, f'set_margin_{lado}')(18 if lado in ('start', 'end') else 16)
+    pop.corpo.set_size_request(LARGURA - 36, -1)
+    cartao.pack_start(pop.corpo, True, True, 0)
+    win.add(cartao)
+    pop.atualizar()
+
+    ponteiro = Gdk.Display.get_default().get_default_seat().get_pointer()
+    _, mx, my = ponteiro.get_position()
+    if MOUSE:
+        mx, my = MOUSE
+    b = barra_sob_mouse(mx, my)
+    total = LARGURA + 2 * margem
+    if b:
+        bx, by, bw, bh = b
+        x = max(bx - margem, min(mx - total // 2, bx + bw - total + margem))
+        y = by + bh + DISTANCIA
+    else:
+        bx, by, bw, bh = mx - total, my - 30, total * 2, 26
+        x, y = mx - total // 2, my + 20
+    win.move(x, y)
+    win.show_all()   # o fade de entrada e saída é do picom
+
+    # Fecha quando o mouse sai do cartão + faixa da barra acima dele.
+    estado = {'dentro': time.time(), 'entrou': False, 'inicio': time.time()}
+
+    def vigiar():
+        _, px, py = ponteiro.get_position()
+        w, h = win.get_size()
+        dentro = x - 6 <= px < x + w + 6 and by - 4 <= py < y + h + 6
+        agora = time.time()
+        if dentro:
+            estado['dentro'], estado['entrou'] = agora, True
+        elif estado['entrou'] and agora - estado['dentro'] > .7:
+            return sair()
+        elif not estado['entrou'] and agora - estado['inicio'] > 10:
+            return sair()
+        return True
+
+    GLib.timeout_add(150, vigiar)
+    if pop.intervalo:
+        GLib.timeout_add(int(pop.intervalo * 1000), lambda: pop.atualizar() or True)
+    try:
+        gi.require_version('GLibUnix', '2.0')
+        from gi.repository import GLibUnix
+        GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, sair)
+    except (ImportError, ValueError):
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, sair)
+    Gtk.main()
+
+
+main()

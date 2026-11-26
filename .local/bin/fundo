@@ -1,0 +1,49 @@
+#!/bin/sh
+# Papel de parede da área de trabalho, separado por monitor ou estendido pelos três.
+# Uso: fundo              reaplica no modo salvo (boot, mudança de monitores)
+#      fundo estendido    uma imagem só atravessando todos os monitores
+#      fundo separado     a imagem inteira em cada monitor
+#      fundo alternar     troca entre os dois
+# A imagem é a do pywal (~/.cache/wal/wal); o modo fica em ~/.config/fundo-modo.
+
+arquivo="${XDG_CONFIG_HOME:-$HOME/.config}/fundo-modo"
+modo=$(cat "$arquivo" 2>/dev/null); [ -n "$modo" ] || modo=separado
+
+case "$1" in
+  estendido|separado) modo=$1 ;;
+  alternar) [ "$modo" = estendido ] && modo=separado || modo=estendido ;;
+  "") ;;
+  *) echo "uso: fundo [estendido|separado|alternar]" >&2; exit 2 ;;
+esac
+echo "$modo" > "$arquivo"
+
+img=$(cat "$HOME/.cache/wal/wal" 2>/dev/null)
+[ -f "$img" ] || { echo "fundo: sem imagem do pywal" >&2; exit 1; }
+
+# --no-xinerama: o feh trata a área inteira (ex.: 5846x1440) como uma tela só.
+if [ "$modo" = estendido ]; then
+  # Uma imagem contínua atravessando os monitores, sem distorcer (nunca --bg-scale).
+  # Imagem mais "alta" que a área (ex.: 16:9 contra 4:1): cobrir a largura ampliaria demais;
+  # então cada monitor recebe a imagem inteira. Imagem mais larga que a área: uma só atravessando.
+  area=$(xrandr --current | sed -n 's/^Screen 0:.*current \([0-9]*\) x \([0-9]*\),.*/\1x\2/p')
+  aw=${area%x*}; ah=${area#*x}
+  # Corta a moldura de cor lisa da própria imagem (ex.: desenho no meio de um fundo preto),
+  # senão o conteúdo fica pequeno e as laterais pretas.
+  cache="$HOME/.cache/fundo"; mkdir -p "$cache"
+  chave=$(printf '%s %s %s %s' "$img" "$(stat -c %Y "$img")" "$area" | md5sum | cut -c1-12)
+  recorte="$cache/recorte-$chave.png"
+  [ -f "$recorte" ] || { rm -f "$cache"/recorte-*.png; magick "$img[0]" -fuzz 10% -trim +repage "$recorte"; }
+  set -- $(magick identify -format '%w %h' "$recorte" 2>/dev/null)
+  iw=$1; ih=$2
+  if [ -n "$aw" ] && [ -n "$iw" ] && [ $((iw * ah)) -lt $((aw * ih)) ]; then
+    # Imagem mais estreita que a área: sem desfoque e sem tarja preta (usuário vetou os dois em 16/11/2026).
+    # Cada monitor recebe a imagem preenchendo a tela (como no modo separado).
+    feh --no-fehbg --bg-fill "$recorte"
+  else
+    feh --no-fehbg --no-xinerama --bg-fill "$recorte"
+  fi
+else
+  feh --no-fehbg --bg-fill "$img"
+fi
+[ -n "$1" ] && command -v notify-send >/dev/null && notify-send -t 2000 "Papel de parede" "$modo"
+exit 0

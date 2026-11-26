@@ -20,6 +20,9 @@ Super + Shift + ← / →   →  Move master
 Super + Shift + Space   →  Toggle floating
 Super + M/T/F/U/O       →  Layouts: Monocle / Tile / Spiral / Center / Grid
 Super + B               →  Toggle top bar
+Super + Alt + M         →  Spotify audio into the call on/off
+Super + Alt + V         →  Vinyl player on current monitor
+Super+Alt+Shift+1/2/3   →  Vinyl player: screen 1 / 2 / 3
 
                                [ TAGS ]
 ------------------------------------------------------------------

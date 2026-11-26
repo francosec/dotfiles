@@ -1,0 +1,41 @@
+#!/bin/bash
+# Conecta o fone Bluetooth e manda o som para ele.
+# Uso: fone            conecta (pareia sozinho se o PC tiver esquecido; fone em modo de pareamento)
+#      fone off        desconecta (o som volta para a saída anterior)
+. "$HOME/.local/share/dispositivos.env" 2>/dev/null
+MAC="${FONE_MAC:?defina FONE_MAC em ~/.local/share/dispositivos.env}"
+SINK="bluez_output.${MAC//:/_}.1"
+
+if [ "$1" = off ]; then
+    bluetoothctl disconnect "$MAC" >/dev/null && echo "Fone desconectado."
+    exit
+fi
+
+bluetoothctl power on >/dev/null
+if bluetoothctl info "$MAC" 2>/dev/null | grep -q "Connected: yes"; then
+    echo "Fone já conectado."
+else
+    if ! bluetoothctl info "$MAC" 2>/dev/null | grep -q "Paired: yes"; then
+        echo "Fone não pareado: procurando (deixe em modo de pareamento)..."
+        timeout 20 bluetoothctl --timeout 15 scan on >/dev/null 2>&1
+        bluetoothctl pair "$MAC" >/dev/null 2>&1
+        bluetoothctl trust "$MAC" >/dev/null 2>&1
+    fi
+    ok=
+    for i in 1 2 3; do
+        timeout 15 bluetoothctl connect "$MAC" >/dev/null 2>&1 && { ok=1; break; }
+        echo "Tentativa $i falhou; tentando de novo..."; sleep 2
+    done
+    [ -z "$ok" ] && { echo "Não conectou. O fone está ligado e fora do estojo? Conectado no celular ou no Fire Stick?"; exit 1; }
+    echo "Fone conectado."
+fi
+
+# Saída de áudio: espera o PipeWire criar o dispositivo e move tudo que está tocando para o fone.
+for _ in $(seq 1 10); do pactl list short sinks | grep -q "$SINK" && break; sleep 1; done
+if pactl list short sinks | grep -q "$SINK"; then
+    pactl set-default-sink "$SINK"
+    for i in $(pactl list short sink-inputs | cut -f1); do pactl move-sink-input "$i" "$SINK" 2>/dev/null; done
+    echo "Som saindo pelo fone ($(pactl get-sink-volume "$SINK" | grep -oE '[0-9]+%' | head -1))."
+else
+    echo "Conectou, mas a saída de áudio do fone não apareceu."; exit 1
+fi

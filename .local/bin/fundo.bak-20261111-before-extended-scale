@@ -1,0 +1,30 @@
+#!/bin/sh
+# Papel de parede da área de trabalho, separado por monitor ou estendido pelos três.
+# Uso: fundo              reaplica no modo salvo (boot, mudança de monitores)
+#      fundo estendido    uma imagem só atravessando todos os monitores
+#      fundo separado     a imagem inteira em cada monitor
+#      fundo alternar     troca entre os dois
+# A imagem é a do pywal (~/.cache/wal/wal); o modo fica em ~/.config/fundo-modo.
+
+arquivo="${XDG_CONFIG_HOME:-$HOME/.config}/fundo-modo"
+modo=$(cat "$arquivo" 2>/dev/null); [ -n "$modo" ] || modo=separado
+
+case "$1" in
+  estendido|separado) modo=$1 ;;
+  alternar) [ "$modo" = estendido ] && modo=separado || modo=estendido ;;
+  "") ;;
+  *) echo "uso: fundo [estendido|separado|alternar]" >&2; exit 2 ;;
+esac
+echo "$modo" > "$arquivo"
+
+img=$(cat "$HOME/.cache/wal/wal" 2>/dev/null)
+[ -f "$img" ] || { echo "fundo: sem imagem do pywal" >&2; exit 1; }
+
+# --no-xinerama: o feh trata a área inteira (ex.: 5846x1440) como uma tela só.
+if [ "$modo" = estendido ]; then
+  feh --no-fehbg --no-xinerama --bg-fill "$img"
+else
+  feh --no-fehbg --bg-fill "$img"
+fi
+[ -n "$1" ] && command -v notify-send >/dev/null && notify-send -t 2000 "Papel de parede" "$modo"
+exit 0

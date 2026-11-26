@@ -19,7 +19,7 @@ while IFS=$'\t' read -r idx name rest; do
         pretty="🔊 ${desc}"
     fi
     devices["$pretty"]="$name"
-done < <(pactl list short sinks)
+done < <(pactl list short sinks | grep -v 'vinil_')
 
 chosen_pretty=$(printf "%s\n" "${!devices[@]}" | sort | dmenu -l 5 -p "Choose audio output:")
 

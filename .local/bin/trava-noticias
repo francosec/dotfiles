@@ -1,0 +1,25 @@
+#!/bin/sh
+# Manchetes para as telas laterais do bloqueio: g1 (RN e Brasil) por RSS → ~/.cache/trava-noticias.js
+# (window.NOTICIAS). Guarda 20 min; sem rede mantém o último.
+saida="$HOME/.cache/trava-noticias.js"
+[ "$1" = "-f" ] || [ -z "$(find "$saida" -mmin -20 2>/dev/null)" ] || exit 0
+{
+  echo '@@RN'; curl -sf -m 8 -A 'Mozilla/5.0' 'https://g1.globo.com/rss/g1/rn/rio-grande-do-norte/'
+  echo '@@BR'; curl -sf -m 8 -A 'Mozilla/5.0' 'https://g1.globo.com/rss/g1/'
+} | node -e '
+let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+  const limpa = t => (t||"").replace(/<!\[CDATA\[|\]\]>/g,"").replace(/<[^>]+>/g,"").replace(/&amp;/g,"&").replace(/&quot;/g,"\"").replace(/&#39;|&apos;/g,"\x27").replace(/&lt;/g,"<").replace(/&gt;/g,">").trim();
+  const blocos = s.split(/@@(RN|BR)\n/).slice(1), out = [];
+  for (let i = 0; i < blocos.length; i += 2) {
+    const origem = blocos[i], xml = blocos[i + 1] || "";
+    for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g).toArray().slice(0, 8)) {
+      const it = m[1], g = tag => limpa((it.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`)) || [])[1]);
+      const img = (it.match(/<media:content[^>]*url="([^"]+)"/) || it.match(/<img[^>]*src="([^"]+)"/) || [])[1] || "";
+      out.push({ origem, titulo: g("title"), quando: new Date(g("pubDate")).toISOString(), img });
+    }
+  }
+  if (!out.length) process.exit(1);
+  out.sort((a, b) => b.quando.localeCompare(a.quando));
+  process.stdout.write("window.NOTICIAS = " + JSON.stringify(out.slice(0, 12)) + ";\n");
+});' > "$saida.tmp" && [ -s "$saida.tmp" ] && mv "$saida.tmp" "$saida" || rm -f "$saida.tmp"
+exit 0

@@ -19,11 +19,12 @@ SELECTED="$WALLPAPER_PATH$DMENU"
 if [ -z "$DMENU" ]; then
   exit 0
 else
-  wal -i "$SELECTED"
+  wal -n -q -i "$SELECTED"   # cores do wallpaper (tema fixo: wal --theme pretoebranco)
+  fundo   # aplica no modo salvo (separado ou estendido)
   sed -i ~/.Xresources -re '1,1000d'
   cat ~/.cache/wal/colors.Xresources >> ~/.Xresources
   oomox-cli /opt/oomox/scripted_colors/xresources/xresources-reverse >/dev/null 2>&1 &
-  betterlockscreen -u "$SELECTED" >/dev/null 2>&1 &
+  lockwall "$SELECTED" >/dev/null 2>&1 &
   wal-telegram -t
   pywalfox update
   killall dunst && dunst &

@@ -1,0 +1,2 @@
+# Deixa o usuário apagar/acender a luz da tela do notebook (tela-notebook)
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chmod a+w /sys/class/backlight/%k/brightness"

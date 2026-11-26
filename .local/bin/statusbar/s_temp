@@ -1,0 +1,22 @@
+#!/bin/sh
+# Temperatura da CPU: barra mostra a geral (Package); clique mostra cada núcleo, do coretemp em /sys.
+# Procura o hwmon pelo nome, porque o número (hwmon3) pode mudar no boot.
+for h in /sys/class/hwmon/hwmon*; do
+    [ "$(cat "$h/name" 2>/dev/null)" = coretemp ] && break
+done
+geral="" nucleos=""
+for l in "$h"/temp*_label; do
+    t=$(( $(cat "${l%_label}_input") / 1000 ))
+    case $(cat "$l") in
+        Package*) geral=$t ;;
+        Core*)    nucleos="$nucleos $t" ;;
+    esac
+done
+printf '\357\213\211 %s°\n' "$geral"
+"${0%/*}/barhist" temp "$geral"
+
+# Núcleos só no clique (esquerdo ou direito): janela abaixo do bloco.
+case $BLOCK_BUTTON in
+    1|3) setsid -f barpop temp >/dev/null 2>&1 ;;
+    6) st -e nvim "$0" ;;
+esac

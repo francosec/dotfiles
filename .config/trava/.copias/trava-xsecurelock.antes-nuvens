@@ -1,0 +1,75 @@
+#!/bin/sh
+# Bloqueio com xsecurelock + página animada (trava-saver). Fica em primeiro plano até destravar,
+# como o i3lock -n; o betterlockscreen chama este script (i3lockcolor_bin no betterlockscreenrc).
+# Voltar para o i3lock: trocar i3lockcolor_bin para "trava-i3lock" no betterlockscreenrc.
+
+# Caminhos completos: a Alexa (serviço systemd) não tem ~/.local/bin no PATH.
+B="$HOME/.local/bin"
+# Já bloqueado: não abre outro por cima (o bloqueio automático dispara de novo a cada período parado).
+pgrep -x xsecurelock >/dev/null && exit 0
+# Dados para as páginas: fotos na hora; tempo, radar e notícias em segundo plano (bloquear não
+# espera a rede) e de novo a cada 10 min enquanto durar ESTE bloqueio. As páginas percebem a troca.
+"$B/trava-fotos" >/dev/null 2>&1
+dados() { "$B/trava-clima" "$@" >/dev/null 2>&1; "$B/trava-noticias" "$@" >/dev/null 2>&1; }
+(dados; while sleep 600 && kill -0 $$ 2>/dev/null; do dados -f; done) &
+laco=$!
+# Controle da tela 3 pelo celular agora fica no painel da casa (aba Monitor).
+# O antigo trava-mapa-controle (porta 8766) não sobe mais (13/11/2026).
+controle=
+# Bloqueada, a tela fica LIGADA mostrando os painéis; só apaga por comando (Alexa "desligar monitor",
+# menu do dwm). Sem economia de energia automática do X nem do xsecurelock.
+xset s off; xset dpms 0 0 0
+
+# Chromium aberto por baixo continua desenhando (painel Sentinela: ~1 núcleo). Enquanto durar o bloqueio
+# pausa só os processos de aba (renderer); navegador, downloads e abas novas seguem. Não pausa se
+# houver som tocando. Sempre retoma: ao destravar, e pelo vigia se este script for morto.
+# Desligar: TRAVA_PAUSA_ABAS=0 em ~/.config/trava-local.
+[ -r "$HOME/.config/trava-local" ] && . "$HOME/.config/trava-local"
+retoma() { pkill -CONT -x chromium 2>/dev/null; }
+tocando() { LC_ALL=C pactl list sink-inputs 2>/dev/null | awk '/^Sink Input/{c=0} /Corked: no/{c=1} /application.name = "[Cc]hromium/ && c {s=1} END{exit !s}'; }
+if [ "${TRAVA_PAUSA_ABAS:-1}" = 1 ] && ! tocando; then
+  abas=$(pgrep -a -x chromium | awk '/--type=renderer/ {print $1}')
+  trap retoma EXIT; trap 'exit 143' TERM INT HUP
+  (while kill -0 $$ 2>/dev/null; do sleep 5; done; pkill -CONT -x chromium 2>/dev/null) &
+  [ -n "$abas" ] && kill -STOP $abas 2>/dev/null
+fi
+
+export XSECURELOCK_SAVER="$B/trava-saver"
+# Campo de senha desenhado pela página (cartão de vidro); o auth_trava confere pelo PAM.
+export XSECURELOCK_AUTH=/usr/lib/xsecurelock/auth_trava
+export XSECURELOCK_PAM_SERVICE=system-local-login     # o mesmo do i3lock
+export XSECURELOCK_SINGLE_AUTH_WINDOW=1
+export XSECURELOCK_FORCE_GRAB=1   # tira o teclado de menus/popups abertos em vez de desistir
+export XSECURELOCK_SHOW_HOSTNAME=0 XSECURELOCK_SHOW_USERNAME=0 XSECURELOCK_SHOW_DATETIME=0
+export XSECURELOCK_PASSWORD_PROMPT=cursor
+export XSECURELOCK_SHOW_KEYBOARD_LAYOUT=0 XSECURELOCK_SHOW_LOCKS_AND_LATCHES=0
+export XSECURELOCK_FONT="Adwaita Sans:size=20"
+export XSECURELOCK_AUTH_BACKGROUND_COLOR="#161a21"   # mesmo tom dos cartões da página
+export XSECURELOCK_AUTH_FOREGROUND_COLOR="#e2e2e2"
+export XSECURELOCK_AUTH_CURSOR_BLINK=0 XSECURELOCK_BURNIN_MITIGATION=0
+export XSECURELOCK_AUTH_WARNING_COLOR="#e06c75"
+export XSECURELOCK_AUTH_TIMEOUT=60
+export XSECURELOCK_BLANK_TIMEOUT=-1          # nunca apaga sozinho
+export XSECURELOCK_SAVER_STOP_ON_BLANK=1      # tela apagada por comando: o trava-saver pausa as páginas
+# Teclas de mídia funcionam com a tela bloqueada (o player do bloqueio acompanha).
+export XSECURELOCK_KEY_XF86AudioPlay_COMMAND='playerctl play-pause'
+export XSECURELOCK_KEY_XF86AudioPause_COMMAND='playerctl pause'
+export XSECURELOCK_KEY_XF86AudioNext_COMMAND='playerctl next'
+export XSECURELOCK_KEY_XF86AudioPrev_COMMAND='playerctl previous'
+export XSECURELOCK_KEY_XF86AudioRaiseVolume_COMMAND='pactl set-sink-volume @DEFAULT_SINK@ +5%'
+export XSECURELOCK_KEY_XF86AudioLowerVolume_COMMAND='pactl set-sink-volume @DEFAULT_SINK@ -5%'
+export XSECURELOCK_KEY_XF86AudioMute_COMMAND='pactl set-sink-mute @DEFAULT_SINK@ toggle'
+# brilho do notebook (F11/F12) também com a tela travada
+export XSECURELOCK_KEY_XF86MonBrightnessUp_COMMAND='/home/arthos/.local/bin/brilho +10'
+export XSECURELOCK_KEY_XF86MonBrightnessDown_COMMAND='/home/arthos/.local/bin/brilho -10'
+
+# Se o xsecurelock não bloquear (ex.: outro programa segurando o teclado), cai no i3lock:
+# a tela nunca fica aberta por falha do bloqueio novo.
+xsecurelock; saiu=$?
+kill "$laco" 2>/dev/null
+retoma
+# Ao destravar, repinta o papel de parede: o bloqueio às vezes deixa restos (ex.: tela 3 cortado embaixo).
+"$B/fundo" >/dev/null 2>&1 &
+[ "$saiu" = 0 ] && exit 0
+echo "trava-xsecurelock: xsecurelock saiu com erro; usando i3lock" >&2
+exec "$B/trava-i3lock"

@@ -38,7 +38,7 @@ export XCURSOR_SIZE=20
 # ------------------------------
 # Restore wallpaper (pywal)
 monitores  # resolução antes do wallpaper
-wal -R &
+wal -R -n &  # -n: o fundo é do script fundo (monitores), que respeita o modo estendido
 
 # Compositor with experimental backends (transparency, blur)
 if [ -e /dev/dri/renderD128 ]; then picom & else picom --config ~/.config/picom/picom-vm.conf & fi  # sem GPU (VM sem 3D) o glx congela a tela
@@ -64,7 +64,7 @@ udiskie &
 # XSettings daemon (GTK theme, icons, etc.)
 xsettingsd &
 
-# Keyboard layout: ABNT2 adaptado ao teclado americano (~/.local/bin/teclado)
+# Keyboard layout: ANSI US International original do teclado (~/.local/bin/teclado)
 teclado &
 
 # VMware: copiar e colar com o Windows (open-vm-tools + gtkmm3). Em PC de verdade não roda.

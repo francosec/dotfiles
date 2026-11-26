@@ -1,0 +1,71 @@
+#!/bin/sh
+# Gera ~/.cache/trava-clima.js (window.CLIMA) para a tela de bloqueio e chama o trava-radar
+# (~/.cache/trava-radar.js). Tempo: Open-Meteo (modelo na coordenada exata; sem chave). Radar: RainViewer.
+# Local fixo em ~/.config/trava-local (LAT, LON, NOME). Guarda 15 min; sem rede mantém o último.
+saida="$HOME/.cache/trava-clima.js"
+[ "$1" = "-f" ] || [ -z "$(find "$saida" -mmin -15 2>/dev/null)" ] || exit 0
+LAT= LON= NOME=
+[ -f "$HOME/.config/trava-local" ] && . "$HOME/.config/trava-local"
+if [ -z "$LAT" ]; then  # sem local fixo: aproxima pelo IP (wttr.in)
+  eval "$(curl -sf -m 5 'https://wttr.in/?format=j1' | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s).nearest_area[0];console.log(`LAT=${a.latitude} LON=${a.longitude} NOME="${a.areaName[0].value}"`)})')"
+fi
+[ -n "$LAT" ] || exit 1
+export LAT LON NOME
+url="https://api.open-meteo.com/v1/forecast?latitude=$LAT&longitude=$LON&timezone=America%2FFortaleza&forecast_days=5"
+url="$url&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation,cloud_cover,is_day,wind_direction_10m,wind_gusts_10m"
+url="$url&hourly=temperature_2m,precipitation_probability,precipitation,weather_code,uv_index"
+url="$url&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,uv_index_max,sunrise,sunset"
+# Fonte principal: Open-Meteo Best Match, que escolhe/combina os modelos mais adequados
+# disponíveis para a coordenada. Para a região de casa, a cobertura pública disponível
+# continua sendo global (não há endpoint JSON estável do COSMO regional do INMET).
+# Se o Best Match falhar, usa o ECMWF IFS HRES 9 km como fallback. O índice UV vem
+# de uma chamada automática separada do Open-Meteo.
+uv="https://api.open-meteo.com/v1/forecast?latitude=$LAT&longitude=$LON&timezone=America%2FFortaleza&forecast_days=5&hourly=uv_index&daily=uv_index_max"
+UVJSON=$(curl -sf -m 8 "$uv") || UVJSON='{}'
+export UVJSON
+{ curl -sf -m 10 "$url" && FONTE_OK=1; } > "$saida.json" || FONTE_OK=
+if [ -n "$FONTE_OK" ] && [ -s "$saida.json" ]; then
+  export FONTE="Open-Meteo Best Match"
+else
+  { curl -sf -m 10 "$url&models=ecmwf_ifs" && FONTE_OK=1; } > "$saida.json" || FONTE_OK=
+  [ -n "$FONTE_OK" ] && [ -s "$saida.json" ] && export FONTE="ECMWF IFS 9 km (fallback)"
+fi
+node -e '
+// Códigos WMO (Open-Meteo) → códigos WWO que a página já usa para ícones e ambiente.
+const wwo = c => c === 0 ? 113 : c <= 2 ? 116 : c === 3 ? 122 : c <= 48 ? 248 : c <= 55 ? 266 : c <= 57 ? 281
+  : c === 61 ? 296 : c === 63 ? 302 : c === 65 ? 308 : c <= 67 ? 311 : c <= 77 ? 326 : c === 80 ? 353 : c === 81 ? 356
+  : c === 82 ? 359 : c <= 86 ? 368 : c === 95 ? 389 : 395;
+const nome = c => ({0:"Céu limpo",1:"Céu quase limpo",2:"Parcialmente nublado",3:"Nublado",45:"Neblina",48:"Neblina com geada",
+  51:"Garoa fraca",53:"Garoa",55:"Garoa forte",56:"Garoa congelante",57:"Garoa congelante",61:"Chuva fraca",63:"Chuva",65:"Chuva forte",
+  66:"Chuva congelante",67:"Chuva congelante",71:"Neve fraca",73:"Neve",75:"Neve forte",77:"Granizo fino",80:"Pancadas fracas",
+  81:"Pancadas de chuva",82:"Pancadas fortes",85:"Neve",86:"Neve",95:"Trovoada",96:"Trovoada com granizo",99:"Trovoada com granizo"})[c] || "—";
+let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+  const j = JSON.parse(s), c = j.current, d = j.daily, h = j.hourly;
+  // UV da chamada à parte (mesmas horas e dias) quando o modelo principal não traz
+  try { const u = JSON.parse(process.env.UVJSON || "{}");
+    if (u.hourly && !(h.uv_index || []).some(v => v != null)) h.uv_index = h.time.map(t => u.hourly.uv_index[u.hourly.time.indexOf(t)] ?? null);
+    if (u.daily && !(d.uv_index_max || []).some(v => v != null)) d.uv_index_max = d.time.map(t => u.daily.uv_index_max[u.daily.time.indexOf(t)] ?? null);
+  } catch {}
+  const dias = ["dom","seg","ter","qua","qui","sex","sáb"], pontos = ["N","NE","L","SE","S","SO","O","NO"];   // de onde o vento vem
+  const agora = c.time.slice(0, 13), i0 = Math.max(0, h.time.findIndex(t => t.slice(0, 13) === agora));
+  const clima = {
+    fonte: process.env.FONTE || "Open-Meteo", atualizado: new Date().toISOString(),
+    lugar: process.env.NOME || "", lat: +process.env.LAT, lon: +process.env.LON,
+    temp: Math.round(c.temperature_2m), sensacao: Math.round(c.apparent_temperature), codigo: wwo(c.weather_code), wmo: c.weather_code,
+    condicao: nome(c.weather_code), umidade: c.relative_humidity_2m, vento: Math.round(c.wind_speed_10m),
+    chuvaAgora: c.precipitation, nuvens: c.cloud_cover,
+    ventoDir: pontos[Math.round((c.wind_direction_10m ?? 0) / 45) % 8], rajada: Math.round(c.wind_gusts_10m ?? 0),
+    uvAgora: Math.round(h.uv_index?.[i0] ?? 0), dia: !!c.is_day,
+    dias: d.time.slice(0, 5).map((t, i) => ({ dia: dias[new Date(t + "T12:00").getDay()], min: Math.round(d.temperature_2m_min[i]),
+      max: Math.round(d.temperature_2m_max[i]), codigo: wwo(d.weather_code[i]), condicao: nome(d.weather_code[i]),
+      chuva: d.precipitation_probability_max[i] ?? 0, mm: d.precipitation_sum[i] ?? 0, uv: d.uv_index_max[i] ?? 0,
+      nasce: (d.sunrise?.[i] || "").slice(11, 16), poe: (d.sunset?.[i] || "").slice(11, 16) })),
+    horas: h.time.slice(i0, i0 + 13).map((t, k) => ({ hora: t.slice(11, 16), temp: Math.round(h.temperature_2m[i0 + k]),
+      chuva: h.precipitation_probability[i0 + k] ?? 0, mm: h.precipitation[i0 + k] ?? 0, codigo: wwo(h.weather_code[i0 + k]), uv: Math.round(h.uv_index?.[i0 + k] ?? 0) })),
+  };
+  process.stdout.write("window.CLIMA = " + JSON.stringify(clima) + ";\n");
+});' < "$saida.json" > "$saida.tmp" && [ -s "$saida.tmp" ] && mv "$saida.tmp" "$saida" || rm -f "$saida.tmp"
+rm -f "$saida.json"
+# Radar: quadros recentes + chuva mais próxima de casa (trava-radar; usa LAT/LON exportados acima).
+"$HOME/.local/bin/trava-radar" 2>/dev/null
+exit 0

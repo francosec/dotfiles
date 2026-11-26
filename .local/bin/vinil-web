@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""vinil-web: player de vinil numa guia do Brave, tocando o som do Spotify sem filtro de voz.
+
+Uso: vinil-web          abre a guia (o serviço vinil-web.service fica sempre ligado)
+     vinil-web parar    encerra o serviço até o próximo login
+No Meet: Apresentar, Guia, "Vinil", com "compartilhar áudio da guia" ligado.
+Enquanto a guia toca, o Spotify vai para a saída virtual vinil_web e só a guia soa no fone
+(sem som dobrado). Sem guia tocando, volta para a saída padrão. Só escuta em 127.0.0.1.
+"""
+import ast, http.server, json, os, re, signal, subprocess, sys, threading, time, urllib.request
+
+PORTA, SINK = 5247, 'vinil_web'
+URL = f'http://127.0.0.1:{PORTA}/'
+os.environ['LC_ALL'] = 'C.UTF-8'
+
+
+def sh(*a):
+    return subprocess.run(a, capture_output=True, text=True, timeout=5).stdout
+
+
+if sys.argv[1:] == ['parar']:
+    sys.exit(subprocess.run(['systemctl', '--user', 'stop', 'vinil-web']).returncode)
+if sys.argv[1:] and sys.argv[1:] != ['servidor']:
+    sys.exit(__doc__)
+if sys.argv[1:] != ['servidor']:
+    subprocess.run(['systemctl', '--user', 'start', 'vinil-web'])
+    for _ in range(40):
+        try:
+            urllib.request.urlopen(URL, timeout=1).close()
+            break
+        except OSError:
+            time.sleep(.1)
+    subprocess.Popen(['brave', URL], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    sys.exit(0)
+
+# Leitura da música e da letra: as mesmas funções do trava-saver (sem abrir a janela dele).
+import threading, subprocess
+fonte = open(os.path.expanduser('~/.local/bin/trava-saver')).read()
+quer = {'_ler_musica', '_flt', '_parse_lrc', '_buscar_letra', 'CAMPOS', 'FMT', '_letras', '_letra_falha'}
+nos = [n for n in ast.parse(fonte).body
+       if (isinstance(n, ast.FunctionDef) and n.name in quer)
+       or (isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') in quer)]
+estado = {'musica': None, 'letra': None}
+
+
+def _enviar_letra(k):
+    estado['letra'] = {'k': '%s|%s' % k, 'linhas': _letras.get(k)}
+
+
+exec(compile(ast.Module(nos, []), 'trava-saver', 'exec'), globals())
+
+
+faixa = None
+
+
+def musica_passo():
+    global faixa
+    m = _ler_musica()
+    if m and m['capa'].startswith('file://'):
+        m['capa'] = ''
+    if m and (m['titulo'], m['artista']) != faixa:
+        faixa = (m['titulo'], m['artista'])
+        if _letras.get(faixa):
+            _enviar_letra(faixa)
+        else:
+            threading.Thread(target=_buscar_letra, args=(dict(m),), daemon=True).start()
+    estado['musica'] = m
+
+
+def musica_laco():
+    while True:
+        try:
+            musica_passo()
+        except Exception as e:
+            print(e, file=sys.stderr)
+        time.sleep(1)
+
+
+# Saída virtual e rota do Spotify
+def garante_sink():
+    """Recria a saída se ela sumiu (PipeWire reiniciado). Sobra de execução anterior é reaproveitada."""
+    if not re.search(rf'\t{SINK}\t', sh('pactl', 'list', 'short', 'sinks')):
+        sh('pactl', 'load-module', 'module-null-sink', f'sink_name={SINK}', 'rate=48000', 'sink_properties=device.description=VinilWeb')
+
+
+def tira_sink():
+    for l in sh('pactl', 'list', 'short', 'modules').splitlines():
+        if f'sink_name={SINK} ' in l:
+            sh('pactl', 'unload-module', l.split('\t')[0])
+
+
+ouvintes, trava = [0], threading.Lock()
+
+
+def spotify():
+    """[(entrada, saída atual)] do Spotify."""
+    out, r = sh('pactl', 'list', 'sink-inputs'), []
+    for b in out.split('Sink Input #')[1:]:
+        if re.search(r'application\.name = "spotify"', b, re.I):
+            r.append((b.split()[0], re.search(r'Sink: (\d+)', b)[1]))
+    return r
+
+
+saida_real = [None]
+
+
+def rota(para_guia):
+    """Spotify na guia quando há ouvinte; todo o resto sempre fora da vinil_web (ela não toca em lugar nenhum)."""
+    ids = {l.split('\t')[1]: l.split('\t')[0] for l in sh('pactl', 'list', 'short', 'sinks').splitlines()}
+    if SINK not in ids:
+        return
+    padrao = sh('pactl', 'get-default-sink').strip()
+    if padrao.startswith('vinil_'):      # escolhida por engano como saída padrão: volta à anterior
+        reais = [n for n in ids if not n.startswith('vinil_')]
+        if not reais:
+            return
+        padrao = saida_real[0] if saida_real[0] in reais else next((n for n in reais if '.pci-' in n), reais[0])
+        sh('pactl', 'set-default-sink', padrao)
+    saida_real[0] = padrao
+    sp = {e for e, _ in spotify()}
+    for l in sh('pactl', 'list', 'short', 'sink-inputs').splitlines():
+        e, s = l.split('\t')[:2]
+        if e in sp and para_guia and s != ids[SINK]:
+            sh('pactl', 'move-sink-input', e, SINK)
+        elif s == ids[SINK] and not (e in sp and para_guia):
+            sh('pactl', 'move-sink-input', e, padrao)
+
+
+def rota_laco():
+    while True:
+        try:
+            garante_sink()
+            rota(ouvintes[0] > 0)
+        except Exception as e:
+            print(e, file=sys.stderr)
+        time.sleep(1)
+
+
+EXTRA = r'''
+<title>Vinil</title>
+<style>#v-ini{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgb(0 0 0/.6);cursor:pointer}
+#v-ini button{font:600 20px sans-serif;padding:16px 32px;border:0;border-radius:12px;background:#fff;color:#111;cursor:pointer}</style>
+<div id="v-ini"><button>Iniciar áudio</button></div>
+<script>
+document.title = 'Vinil';
+window.tela && window.tela({layout: 'musica'});
+(async () => { for (;;) { try {
+  const e = await (await fetch('/estado', {cache: 'no-store'})).json();
+  window.musica(e.musica); if (e.letra) window.letra(e.letra);
+} catch (_) {} await new Promise(r => setTimeout(r, 1000)); } })();
+const ini = document.getElementById('v-ini'), bt = ini.querySelector('button');
+const espera = ms => new Promise(r => setTimeout(r, ms));
+const mostra = txt => { bt.textContent = txt; ini.style.display = 'flex'; };
+let ocupado = false;
+async function toca(ac) {      // um fluxo de /audio até ele cair
+  const rd = (await fetch('/audio', {cache: 'no-store'})).body.getReader();
+  let t = 0, resto = new Uint8Array(0);
+  for (;;) {
+    const {value, done} = await rd.read(); if (done) break;
+    let b = new Uint8Array(resto.length + value.length); b.set(resto); b.set(value, resto.length);
+    const n = b.length >> 2; resto = b.slice(n * 4); if (!n) continue;
+    const pcm = new Int16Array(b.buffer, 0, n * 2), buf = ac.createBuffer(2, n, 48000);
+    const L = buf.getChannelData(0), R = buf.getChannelData(1);
+    for (let i = 0; i < n; i++) { L[i] = pcm[2 * i] / 32768; R[i] = pcm[2 * i + 1] / 32768; }
+    if (t < ac.currentTime + .02) t = ac.currentTime + .25;      // folga contra cortes
+    if (t > ac.currentTime + 1) continue;                        // acumulou atraso: descarta
+    const s = ac.createBufferSource(); s.buffer = buf; s.connect(ac.destination); s.start(t); t += n / 48000;
+  }
+}
+async function inicia(clique) {
+  if (ocupado) return; ocupado = true;
+  let ac;
+  try {
+    if (clique) bt.textContent = 'Iniciando…';
+    ac = new AudioContext({latencyHint: 'playback'});
+    await Promise.race([ac.resume(), espera(clique ? 3000 : 800)]);
+    if (ac.state !== 'running') throw new Error(ac.state);
+    ini.style.display = 'none';
+    while (ac.state === 'running') { try { await toca(ac); } catch (_) {} await espera(1000); }   // caiu: religa sozinho
+    mostra('Áudio parou: clique para religar');
+  } catch (e) { mostra(clique ? 'Falha no áudio: clique para tentar de novo' : 'Iniciar áudio'); console.error('vinil', e); }
+  ac && ac.close().catch(() => {}); ocupado = false;
+}
+ini.onclick = () => inicia(true);
+inicia(false);      // sem clique, só se o navegador permitir
+</script>
+'''
+
+
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+    def manda(self, corpo, tipo):
+        self.send_response(200)
+        self.send_header('Content-Type', tipo)
+        self.send_header('Content-Length', str(len(corpo)))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Cross-Origin-Resource-Policy', 'same-origin')
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def do_GET(self):
+        if self.headers.get('Host') != f'127.0.0.1:{PORTA}':     # contra DNS rebinding
+            return self.send_error(403)
+        c = self.path.split('?')[0]
+        if c == '/':
+            h = open(os.path.expanduser('~/.config/trava/radar.html'), encoding='utf-8').read()
+            h = re.sub(r'<script src="file://[^"]*"></script>', '', h)
+            i = h.rindex('</body>')
+            self.manda((h[:i] + EXTRA + h[i:]).encode(), 'text/html; charset=utf-8')
+        elif c == '/tempo.js':
+            self.manda(open(os.path.expanduser('~/.config/trava/tempo.js'), 'rb').read(), 'text/javascript')
+        elif c == '/estado':
+            self.manda(json.dumps(estado).encode(), 'application/json')
+        elif c == '/audio' and self.headers.get('Sec-Fetch-Site', 'same-origin') == 'same-origin':
+            self.audio()
+        else:
+            self.send_error(404)
+
+    def audio(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        p = subprocess.Popen(['parec', f'--device={SINK}.monitor', '--format=s16le', '--rate=48000', '--channels=2', '--latency-msec=40'],
+                             stdout=subprocess.PIPE)
+        with trava:
+            ouvintes[0] += 1
+        try:
+            while d := p.stdout.read1(16384):
+                self.wfile.write(d)
+        except OSError:
+            pass
+        finally:
+            p.kill(); p.wait()
+            with trava:
+                ouvintes[0] -= 1
+
+
+def fim(*_):
+    try:
+        rota(False)
+        tira_sink()
+    finally:
+        os._exit(0)
+
+
+signal.signal(signal.SIGTERM, fim)
+signal.signal(signal.SIGINT, fim)
+srv = http.server.ThreadingHTTPServer(('127.0.0.1', PORTA), H)
+for f in (musica_laco, rota_laco):
+    threading.Thread(target=f, daemon=True).start()
+srv.serve_forever()

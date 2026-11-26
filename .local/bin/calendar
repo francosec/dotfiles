@@ -1,17 +1,52 @@
-monitors=$(xdpyinfo | grep dimensions | awk '{print $2}')
+#!/bin/sh
+# Calendário (yad) encaixado no canto superior direito, logo abaixo da barra do dwm,
+# no monitor onde está o mouse (o monitor cuja barra foi clicada). Clicar de novo fecha.
 
-IFS='x' read -r width height <<< "$monitors"
+titulo=Calendar
+gap=6   # espaço entre a barra e o calendário
 
-if pgrep yad >/dev/null 2>&1; then
-    pkill yad
+# Já aberto? Fecha e sai.
+if pkill -f "yad --title=$titulo --calendar"; then exit 0; fi
+
+# Monitor sob o mouse: largura altura x y
+eval "$(xdotool getmouselocation --shell)"
+set -- $(xrandr --listactivemonitors | awk -v px="$X" -v py="$Y" 'NR > 1 {
+  split($3, g, /[x+]/); sub(/\/.*/, "", g[1]); sub(/\/.*/, "", g[2])
+  if (px >= g[3] && px < g[3] + g[1] && py >= g[4] && py < g[4] + g[2]) { print g[1], g[2], g[3], g[4]; exit }
+}')
+mw=$1 mh=$2 mx=$3 my=$4
+[ -n "$my" ] || exit 1
+
+# Barra do dwm desse monitor (janela de classe "dwm" que começa dentro dele): x y largura altura
+set -- $(for w in $(xwininfo -root -children | awk '/\("dwm" "dwm"\)/ {print $1}'); do
+  xwininfo -id "$w" | awk '/Absolute upper-left X/ {x=$4} /Absolute upper-left Y/ {y=$4}
+                           /Width:/ {w=$2} /Height:/ {h=$2} END {print x, y, w, h}'
+done | awk -v mx="$mx" -v my="$my" -v mw="$mw" -v mh="$mh" \
+  '$1 >= mx && $1 < mx + mw && $2 >= my && $2 < my + mh { print; exit }')
+if [ -n "$4" ]; then
+  direita=$(( $1 + $3 )) topo=$(( $2 + $4 + gap ))
 else
-    if [ $1 -lt $width ]; then
-        posx=1650
-    else
-        posx=$((1630 + width / 2))
-    fi
-
-    posy=43
-
-    yad --title='Calendar' --calendar --no-buttons --undecorated --posx=$posx --posy=$posy &
+  direita=$(( mx + mw - 10 )) topo=$(( my + 43 ))   # barra não achada: usa o padding da config
 fi
+
+# Abre já na posição exata usando a largura medida da última vez (com bordas).
+# Só ajusta depois se o tamanho mudou (ex.: outra fonte), e guarda o novo.
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/calendar-largura"
+largura=$(cat "$cache" 2>/dev/null); [ -n "$largura" ] || largura=266
+yad --title="$titulo" --calendar --no-buttons --undecorated \
+    --posx=$(( direita - largura )) --posy="$topo" >/dev/null 2>&1 &
+
+win=$(xdotool search --sync --onlyvisible --name "^$titulo\$" | head -1)
+[ -n "$win" ] || exit 0
+eval "$(xwininfo -id "$win" | awk '/Absolute upper-left X/ {print "wx=" $4} /Absolute upper-left Y/ {print "wy=" $4}
+  /Width:/ {print "ww=" $2} /Height:/ {print "wh=" $2} /Border width:/ {print "bw=" $3}')"
+[ "$(( ww + 2 * bw ))" -eq "$largura" ] || echo $(( ww + 2 * bw )) > "$cache"
+x=$(( direita - ww - 2 * bw ))
+[ "$x" -ne "$wx" ] || [ "$topo" -ne "$wy" ] || exit 0
+# O dwm soma a origem do monitor da janela ao pedido de movimento (e centraliza se passar
+# da borda), então a posição vai relativa a esse monitor.
+set -- $(xrandr --listactivemonitors | awk -v px="$wx" -v py="$wy" 'NR > 1 {
+  split($3, g, /[x+]/); sub(/\/.*/, "", g[1]); sub(/\/.*/, "", g[2])
+  if (px >= g[3] && px < g[3] + g[1] && py >= g[4] && py < g[4] + g[2]) { print g[3], g[4]; exit }
+}')
+xdotool windowmove "$win" $(( x - ${1:-$mx} )) $(( topo - ${2:-$my} ))

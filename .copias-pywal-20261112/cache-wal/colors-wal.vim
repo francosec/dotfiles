@@ -1,0 +1,23 @@
+" Special
+let wallpaper  = "/home/arthos/Pictures/wallpapers/wallhaven-wq5oep.jpg"
+let background = "#020A13"
+let foreground = "#95e2f2"
+let cursor     = "#95e2f2"
+
+" Colors
+let color0  = "#020A13"
+let color1  = "#134E8D"
+let color2  = "#1B4290"
+let color3  = "#215CA6"
+let color4  = "#1968B2"
+let color5  = "#2174CD"
+let color6  = "#2497EA"
+let color7  = "#95e2f2"
+let color8  = "#689ea9"
+let color9  = "#134E8D"
+let color10 = "#1B4290"
+let color11 = "#215CA6"
+let color12 = "#1968B2"
+let color13 = "#2174CD"
+let color14 = "#2497EA"
+let color15 = "#95e2f2"

@@ -17,7 +17,7 @@ fi
 printf "%s\n" "$weather"
 
 case $BLOCK_BUTTON in
-    1) setsid -f st -n spterm -g 90x25 -e sh -c 'curl -s wttr.in | less -R' ;;
+    1) setsid -f st -e sh -c 'curl -s wttr.in | less -R' ;;
     3) notify-send " Weather module" "Left click: full forecast\nRight click: info popup" ;;
     6) st -e nvim "$0" ;;
 esac

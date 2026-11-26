@@ -1,0 +1,53 @@
+#!/bin/sh
+# Papel de parede da área de trabalho, separado por monitor ou estendido pelos três.
+# Uso: fundo              reaplica no modo salvo (boot, mudança de monitores)
+#      fundo estendido    uma imagem só atravessando todos os monitores
+#      fundo separado     a imagem inteira em cada monitor
+#      fundo alternar     troca entre os dois
+# A imagem é a do pywal (~/.cache/wal/wal); o modo fica em ~/.config/fundo-modo.
+
+arquivo="${XDG_CONFIG_HOME:-$HOME/.config}/fundo-modo"
+modo=$(cat "$arquivo" 2>/dev/null); [ -n "$modo" ] || modo=separado
+
+case "$1" in
+  estendido|separado) modo=$1 ;;
+  alternar) [ "$modo" = estendido ] && modo=separado || modo=estendido ;;
+  "") ;;
+  *) echo "uso: fundo [estendido|separado|alternar]" >&2; exit 2 ;;
+esac
+echo "$modo" > "$arquivo"
+
+img=$(cat "$HOME/.cache/wal/wal" 2>/dev/null)
+[ -f "$img" ] || { echo "fundo: sem imagem do pywal" >&2; exit 1; }
+
+# --no-xinerama: o feh trata a área inteira (ex.: 5846x1440) como uma tela só.
+if [ "$modo" = estendido ]; then
+  # Uma imagem contínua atravessando os monitores, sem distorcer (nunca --bg-scale).
+  # Imagem mais "alta" que a área (ex.: 2,35:1 contra 4:1): cobrir a largura cortaria quase metade
+  # da altura e fica ampliada demais. Então encaixa a imagem inteira pela altura, centralizada,
+  # e preenche as laterais com a própria imagem desfocada. Resultado em cache por imagem+área.
+  # Imagem mais larga que a área: só amplia e corta as laterais (--bg-fill).
+  area=$(xrandr --current | sed -n 's/^Screen 0:.*current \([0-9]*\) x \([0-9]*\),.*/\1x\2/p')
+  aw=${area%x*}; ah=${area#*x}
+  set -- $(magick identify -format '%w %h' "$img[0]" 2>/dev/null)
+  iw=$1; ih=$2
+  if [ -n "$aw" ] && [ -n "$iw" ] && [ $((iw * ah)) -lt $((aw * ih)) ]; then
+    cache="$HOME/.cache/fundo"; mkdir -p "$cache"
+    chave=$(printf '%s %s %s' "$img" "$(stat -c %Y "$img")" "$area" | md5sum | cut -c1-12)
+    saida="$cache/estendido-$chave.jpg"
+    if [ ! -f "$saida" ]; then
+      rm -f "$cache"/estendido-*.jpg
+      # fundo: imagem cobrindo a área, desfocada em tamanho reduzido (rápido) e reampliada
+      magick "$img[0]" -resize "$((aw / 8))x$((ah / 8))^" -gravity center -extent "$((aw / 8))x$((ah / 8))" \
+        -blur 0x6 -resize "${aw}x${ah}!" -brightness-contrast -15x0 \
+        \( "$img[0]" -resize "x${ah}" \) -gravity center -composite -quality 92 "$saida"
+    fi
+    feh --no-fehbg --no-xinerama --bg-center "$saida"
+  else
+    feh --no-fehbg --no-xinerama --bg-fill "$img"
+  fi
+else
+  feh --no-fehbg --bg-fill "$img"
+fi
+[ -n "$1" ] && command -v notify-send >/dev/null && notify-send -t 2000 "Papel de parede" "$modo"
+exit 0

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# atualizar — cópia do sistema com Timeshift, depois yay -Syu e checagens.
+# Uso: atualizar
+# Para voltar ao estado de antes: sudo timeshift --restore
+
+set -uo pipefail
+
+MANTER=3            # quantas cópias feitas por este script ficam guardadas
+TAG="atualizar"     # prefixo do comentário que identifica essas cópias
+
+titulo()   { printf '\n\033[1m== %s\033[0m\n' "$*"; }
+pergunta() { local r; read -rp "$1 [s/N] " r; [[ $r == [sS] ]]; }
+
+titulo "Notícias do Arch (avisos de intervenção manual saem aqui)"
+yay -Pw || true
+pergunta "Continuar?" || exit 0
+
+titulo "Atualizações pendentes"
+pend=$( (checkupdates 2>/dev/null; yay -Qua 2>/dev/null) )
+n=$(grep -c . <<<"$pend")
+if (( n == 0 )); then
+    echo "Nada para atualizar."
+    exit 0
+fi
+echo "$pend"
+echo "Total: $n pacotes"
+
+titulo "Cópia do sistema (Timeshift)"
+kernel_antes=$(pacman -Q linux | awk '{print $2}')
+if ! sudo timeshift --create --comments "$TAG: $n pacotes" --tags O; then
+    echo "A cópia falhou. Atualização cancelada; nada foi alterado."
+    exit 1
+fi
+
+# Apaga as cópias antigas deste script, mantendo as $MANTER mais novas.
+mapfile -t velhas < <(sudo timeshift --list 2>/dev/null \
+    | awk -v t="$TAG:" 'index($0, t) && $3 ~ /^[0-9]{4}-/ {print $3}' \
+    | head -n -"$MANTER")
+for s in "${velhas[@]}"; do
+    sudo timeshift --delete --snapshot "$s"
+done
+
+titulo "Atualizando"
+if ! yay -Syu; then
+    echo "O yay falhou. A cópia de antes está salva; para voltar: sudo timeshift --restore"
+    exit 1
+fi
+
+titulo "Depois da atualização"
+kernel_depois=$(pacman -Q linux | awk '{print $2}')
+if [[ $kernel_antes != "$kernel_depois" ]]; then
+    echo "Kernel novo ($kernel_antes -> $kernel_depois): reinicie o computador."
+    echo "Se a tela 3 ficar sem imagem depois, o smi-usbdisplay não recompilou."
+fi
+
+pacnew=$(pacdiff -o 2>/dev/null)
+if [[ -n $pacnew ]]; then
+    echo "Configurações novas para revisar (.pacnew):"
+    echo "$pacnew"
+    echo "Para revisar: sudo DIFFPROG='nvim -d' pacdiff"
+fi
+
+pkill -RTMIN+8 dwmblocks 2>/dev/null   # atualiza o contador da barra (s_upd)
+echo "Pronto. Para voltar ao estado de antes: sudo timeshift --restore"

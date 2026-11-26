@@ -71,3 +71,14 @@ alias abnt2="teclado"
 
 # Define a function to upload files
 upload() { curl -F"file=@$1" https://envs.sh ; }
+export PATH="$HOME/.local/bin:$PATH"
+
+# Ctrl+S (Termius) abria fwd-i-search; desligado
+bindkey -r "^S"
+
+# Termius (celular via Tailscale SSH): a integração de shell dele registra
+# _termius_si_precmd/_preexec mas às vezes não define a função, e o zsh reclama
+# "function definition file not found" a cada prompt. Stub vazio; se o Termius
+# definir a função de verdade depois, ela substitui este.
+_termius_si_precmd() { : }
+_termius_si_preexec() { : }

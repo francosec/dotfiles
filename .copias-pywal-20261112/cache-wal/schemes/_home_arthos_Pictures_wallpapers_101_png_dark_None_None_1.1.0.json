@@ -1,0 +1,27 @@
+{
+    "wallpaper": "/home/arthos/Pictures/wallpapers/101.png",
+    "alpha": "100",
+    "special": {
+        "background": "#0a0909",
+        "foreground": "#cfcece",
+        "cursor": "#cfcece"
+    },
+    "colors": {
+        "color0": "#0a0909",
+        "color1": "#706F6F",
+        "color2": "#807E7F",
+        "color3": "#81807F",
+        "color4": "#817F80",
+        "color5": "#908F90",
+        "color6": "#A09F9F",
+        "color7": "#cfcece",
+        "color8": "#909090",
+        "color9": "#706F6F",
+        "color10": "#807E7F",
+        "color11": "#81807F",
+        "color12": "#817F80",
+        "color13": "#908F90",
+        "color14": "#A09F9F",
+        "color15": "#cfcece"
+    }
+}

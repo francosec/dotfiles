@@ -1,0 +1,433 @@
+#!/usr/bin/env python3
+# Proteção de tela do xsecurelock: abre uma página de ~/.config/trava (WebKit) dentro da janela que
+# o xsecurelock entrega em XSCREENSAVER_WINDOW. Monitor principal (pela largura, TRAVA_LARGURA,
+# padrão 2560 = tela 2): index.html, com o campo de senha. Laterais: radar.html (1920 = tela 3) e
+# info.html (1366 = notebook); sem página, preto. Este processo não vê a senha: se travar ou
+# fechar, a tela continua bloqueada pelo xsecurelock.
+import os, signal, sys
+# tela 3 (adaptador USB evdi): o vblank por DRM do WebKit pegava o ritmo errado e a página desenhava
+# ~6 quadros/s (vinil saltando). Com timer, o WebKit usa a taxa da tela. Desligar: TRAVA_VBLANK_DRM=1
+if not os.environ.get('TRAVA_VBLANK_DRM'): os.environ.setdefault('WEBKIT_FORCE_VBLANK_TIMER', '1')
+# Quadro em memória compartilhada: sem isso o GTK3 lia de volta cada quadro da GPU e a tela 3 ficava
+# em ~6 qps com travadas de 0,5 s; com SHM ~16 qps e no máximo 0,1 s (medido 13/11/2026). Desligar: TRAVA_SHM=0
+if os.environ.get('TRAVA_SHM') != '0': os.environ.setdefault('WEBKIT_DMABUF_RENDERER_FORCE_SHM', '1')
+import gi
+gi.require_version('Gtk', '3.0'); gi.require_version('Gdk', '3.0')
+gi.require_version('GdkX11', '3.0'); gi.require_version('WebKit2', '4.1')
+from gi.repository import Gtk, Gdk, GdkX11, WebKit2, GLib
+
+PAGINA = os.path.expanduser(os.environ.get('TRAVA_PAGINA', '~/.config/trava/index.html'))
+
+xid = int(os.environ.get('XSCREENSAVER_WINDOW', '0'), 0)
+if not xid:
+    sys.exit('trava-saver: sem XSCREENSAVER_WINDOW')
+
+display = GdkX11.X11Display.get_default()
+pai = GdkX11.X11Window.foreign_new_for_display(display, xid)
+largura, altura = pai.get_width(), pai.get_height()
+if os.environ.get("TRAVA_DEBUG"):
+    with open(os.path.expanduser("~/.cache/trava-saver.log"), "a") as f:
+        print(f"janela {xid:#x} {largura}x{altura}", file=f)
+
+principal = str(largura) == os.environ.get('TRAVA_LARGURA', '2560')
+# Telas laterais: cada monitor tem sua página (largura → arquivo em ~/.config/trava). Sem página: preto.
+LATERAIS = {'1920': 'radar.html'}   # 1366 (notebook): sem página, preto; a luz fica apagada (tela-notebook)
+if not principal and str(largura) in LATERAIS:
+    PAGINA = os.path.join(os.path.dirname(PAGINA), LATERAIS[str(largura)])
+lateral = not principal and os.path.exists(PAGINA)
+
+janela = Gtk.Window(type=Gtk.WindowType.POPUP)
+janela.set_default_size(largura, altura)
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    janela.override_background_color(Gtk.StateFlags.NORMAL, Gdk.RGBA(0, 0, 0, 1))
+if not principal and not lateral:
+    # Outros monitores: preto sólido (sem isso a janela fica "transparente" e o
+    # monitor do adaptador USB mostra restos da imagem anterior).
+    janela.realize()
+    janela.get_window().reparent(pai, 0, 0)
+    janela.show_all()
+    janela.get_window().move_resize(0, 0, largura, altura)
+    signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+    Gtk.main()
+    sys.exit(0)
+web = WebKit2.WebView()
+web.set_background_color(Gdk.RGBA(0, 0, 0, 1))
+cfg = web.get_settings()
+cfg.set_allow_file_access_from_file_urls(True)
+_gpu = {'never': WebKit2.HardwareAccelerationPolicy.NEVER, 'always': WebKit2.HardwareAccelerationPolicy.ALWAYS}
+cfg.set_hardware_acceleration_policy(_gpu.get(os.environ.get('TRAVA_GPU', 'always'), WebKit2.HardwareAccelerationPolicy.ALWAYS))
+cfg.set_enable_developer_extras(False)
+web.load_uri('file://' + PAGINA)
+janela.add(web)
+janela.realize()
+janela.get_window().reparent(pai, 0, 0)
+janela.show_all()
+janela.get_window().move_resize(0, 0, largura, altura)
+
+# O xsecurelock pode entregar primeiro uma geometria provisória (menor) e
+# corrigir a janela alguns instantes depois. Acompanhar o pai evita cortar a
+# faixa inferior da tela 3 ou o lado direito da tela 2 ao bloquear/desbloquear.
+_geometria = [largura, altura]
+def _sincroniza_geometria():
+    try:
+        w, h = pai.get_width(), pai.get_height()
+        if w > 0 and h > 0 and [w, h] != _geometria:
+            _geometria[:] = [w, h]
+            janela.set_default_size(w, h)
+            janela.resize(w, h)
+            janela.get_window().move_resize(0, 0, w, h)
+    except Exception:
+        pass
+    return True
+GLib.timeout_add(100, _sincroniza_geometria)
+
+# Ponte com o módulo de senha (auth_trava): repassa à página só o estado publicado por ele
+# (fase e quantidade de caracteres). Ignora estados antigos, de antes desta proteção abrir.
+import json, time
+from gi.repository import GLib
+ESTADO = os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'trava-senha.json')
+_inicio, _visto, _caps, _pronta = time.time(), [0.0], [None], [False]
+# Só entrega estados depois que a página carregou: ao acordar da tela apagada, o xsecurelock abre a
+# página e o auth_trava juntos, e o "campo aberto" chegava antes do window.senha existir (se perdia).
+def _carregou(_w, ev):
+    if ev == WebKit2.LoadEvent.FINISHED:
+        _pronta[0] = True; _visto[0] = 0.0; _caps[0] = None
+        globals().get('_tela_vista', [None])[0] = None
+web.connect('load-changed', _carregou)
+_teclado = Gdk.Keymap.get_for_display(Gdk.Display.get_default())
+def _ponte():
+    if not _pronta[0]:
+        return True
+    caps = _teclado.get_caps_lock_state()          # estado da tecla, não o que foi digitado
+    if caps != _caps[0]:
+        _caps[0] = caps
+        web.evaluate_javascript('window.capsLock && window.capsLock(%s)' % ('true' if caps else 'false'), -1, None, None, None, None, None)
+    try:
+        with open(ESTADO) as f:
+            e = json.load(f)
+        if e.get('t', 0) > max(_visto[0], _inicio - 5):
+            _visto[0] = e['t']
+            web.evaluate_javascript('window.senha && window.senha(%s)' % json.dumps(
+                {'fase': str(e.get('fase', '')), 'n': int(e.get('n', 0)), 'msg': str(e.get('msg', ''))[:80]}), -1, None, None, None, None, None)
+    except (OSError, ValueError, TypeError):
+        pass
+    return True
+GLib.timeout_add(50, _ponte)
+
+# Mapa da tela 3 controlado pelo celular (trava-mapa-controle grava zoom e centro): só na página do radar.
+MAPA = os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'trava-mapa.json')
+_mapa_visto = [0.0]
+def _mapa():
+    if not _pronta[0]:
+        return True
+    try:
+        with open(MAPA) as f:
+            e = json.load(f)
+        if e.get('t', 0) > max(_mapa_visto[0], _inicio - 5):
+            _mapa_visto[0] = e['t']
+            web.evaluate_javascript('window.mapa && window.mapa(%s)' % json.dumps(
+                {'z': int(e['z']), 'lat': float(e['lat']), 'lon': float(e['lon']),
+                 'camada': 'satelite' if e.get('camada') == 'satelite' else 'ruas'}), -1, None, None, None, None, None)
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return True
+if PAGINA.endswith('radar.html'):
+    GLib.timeout_add(150, _mapa)
+
+# Layout da tela 3 escolhido pelo celular (auto | tempo | musica): trava-mapa-controle grava, a página aplica.
+TELA = os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'trava-tela.json')
+_tela_vista = [None]
+def _tela():
+    if not _pronta[0]:
+        return True
+    try:
+        with open(TELA) as f:
+            e = json.load(f)
+        lay = e.get('layout'); letra = float(e.get('letra', 0) or 0)
+    except (OSError, ValueError, AttributeError, TypeError):
+        lay, letra = 'auto', 0.0
+    if lay not in ('auto', 'tempo', 'musica'):
+        lay = 'auto'
+    letra = max(-5.0, min(5.0, letra))
+    if (lay, letra) != _tela_vista[0]:
+        _tela_vista[0] = (lay, letra)
+        web.evaluate_javascript('window.tela && window.tela(%s)' % json.dumps({'layout': lay, 'letra': letra}), -1, None, None, None, None, None)
+    return True
+if PAGINA.endswith('radar.html'):
+    GLib.timeout_add(300, _tela)
+
+# Música tocando (Spotify ou outro player MPRIS) → window.musica da página principal. Consulta o
+# playerctl numa thread a cada 1,5 s (nunca no laço do GTK: não pode derrubar quadro da tela 2).
+# Guarda as últimas faixas em $XDG_RUNTIME_DIR/trava-musica.json para os cartões laterais.
+import threading, subprocess
+HIST = os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'trava-musica.json')
+CAMPOS = ['player', 'status', 'title', 'artist', 'album', 'art', 'length', 'position', 'volume', 'shuffle', 'loop']
+FMT = '\t'.join(['{{playerName}}', '{{status}}', '{{title}}', '{{artist}}', '{{album}}', '{{mpris:artUrl}}', '{{mpris:length}}', '{{position}}', '{{volume}}', '{{shuffle}}', '{{loop}}'])
+def _ler_musica():
+    try:
+        out = subprocess.run(['playerctl', '-a', 'metadata', '--format', FMT], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    tocando = []
+    for linha in out.splitlines():
+        v = linha.split('\t')
+        if len(v) != len(CAMPOS):
+            continue
+        d = dict(zip(CAMPOS, v))
+        if d['title']:
+            tocando.append(d)
+    if not tocando:
+        return None
+    # Prioridade: tocando agora > pausado; Spotify antes de navegador.
+    tocando.sort(key=lambda d: (d['status'] != 'Playing', 'spotify' not in d['player'].lower()))
+    d = tocando[0]
+    def num(x):
+        try: return int(x) / 1e6
+        except ValueError: return 0
+    return {'player': d['player'], 'tocando': d['status'] == 'Playing', 'titulo': d['title'], 'artista': d['artist'],
+            'album': d['album'], 'capa': d['art'] if d['art'].startswith(('https://', 'http://', 'file://')) else '',
+            'dur': num(d['length']), 'pos': num(d['position']), 't': time.time(),
+            'vol': _flt(d['volume']), 'aleatorio': d['shuffle'].lower() == 'true', 'repetir': d['loop'] if d['loop'] in ('Track', 'Playlist') else ''}
+def _flt(x):
+    try: return max(0.0, min(1.0, round(float(x), 2)))
+    except ValueError: return None
+_matizes = {}
+_luzes = {}
+def _matiz(url):
+    """Matiz dominante da capa (pixels mais saturados pesam mais). A página não lê pixels de outro domínio, então é feito aqui."""
+    if not url: return None
+    if url in _matizes: return _matizes[url]
+    h = None
+    try:
+        import io, math, colorsys, urllib.request
+        from PIL import Image
+        if url.startswith('file://'): dados = open(urllib.request.url2pathname(url[7:]), 'rb').read()
+        else: dados = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'trava-saver'}), timeout=5).read()
+        im = Image.open(io.BytesIO(dados)).convert('RGB').resize((24, 24))
+        sx = sy = w = 0.0; lum = 0.0
+        _luzes[url] = round(sum(Image.open(io.BytesIO(dados)).convert('L').resize((16, 16)).tobytes()) / (256 * 255), 3)
+        px = im.tobytes()
+        for i in range(0, len(px), 3):
+            r, g, b = px[i], px[i + 1], px[i + 2]
+            hh, ll, ss = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
+            k = (ss * (1 - abs(2 * ll - 1))) ** 2
+            sx += math.cos(hh * 2 * math.pi) * k; sy += math.sin(hh * 2 * math.pi) * k; w += k
+        if w > .3: h = round((math.degrees(math.atan2(sy, sx)) + 360) % 360)
+    except Exception:
+        h = None
+    if len(_matizes) > 50: _matizes.clear()
+    _matizes[url] = h
+    return h
+_acorda = threading.Event()
+def _vigia_player():
+    """playerctl --follow avisa na hora qualquer troca de faixa, play/pause ou seek: acorda o laço sem esperar."""
+    while True:
+        try:
+            pr = subprocess.Popen(['playerctl', '-a', '--follow', 'metadata', '--format', '{{playerName}}{{status}}{{title}}{{position}}'],
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            for _ in pr.stdout:
+                _acorda.set()
+        except OSError:
+            pass
+        time.sleep(2)
+def _matiz_async(url):
+    if url and url not in _matizes:
+        _matizes[url] = None
+        def f():
+            _matizes.pop(url, None); _matiz(url); _acorda.set()
+        threading.Thread(target=f, daemon=True).start()
+    return _matizes.get(url)
+
+# Letra sincronizada (LRCLIB, grátis, sem chave): buscada uma vez por faixa, em paralelo; vai para window.letra.
+_letras = {}
+_letra_falha = {}
+def _parse_lrc(txt):
+    import re
+    out = []
+    for linha in (txt or '').splitlines():
+        tags = re.findall(r'\[(\d+):(\d+(?:\.\d+)?)\]', linha)
+        texto = re.sub(r'\[[^\]]*\]', '', linha).strip()
+        for mm, ss in tags:
+            out.append([round(int(mm) * 60 + float(ss), 2), texto])
+    return sorted(out)
+def _buscar_letra(m):
+    import urllib.request, urllib.parse
+    k = (m['titulo'], m['artista'])
+    linhas, respondeu = None, False
+    try:
+        q = {'track_name': m['titulo'], 'artist_name': m['artista']}
+        if m['album']: q['album_name'] = m['album']
+        if m['dur']: q['duration'] = str(round(m['dur']))
+        for url in ('https://lrclib.net/api/get?' + urllib.parse.urlencode(q),
+                    'https://lrclib.net/api/search?' + urllib.parse.urlencode({'track_name': m['titulo'], 'artist_name': m['artista']})):
+            try:
+                d = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'trava-saver'}), timeout=6))
+            except Exception:
+                continue
+            respondeu = True
+            if isinstance(d, list):
+                d = next((x for x in d if x.get('syncedLyrics') and (not m['dur'] or abs((x.get('duration') or 0) - m['dur']) < 4)), None)
+            if d and d.get('syncedLyrics'):
+                linhas = _parse_lrc(d['syncedLyrics']); break
+    except Exception:
+        linhas = None
+    if len(_letras) > 30: _letras.clear()
+    _letras[k] = linhas
+    if respondeu: _letra_falha.pop(k, None)
+    else: _letra_falha[k] = time.time()     # rede falhou: tenta de novo em 30 s (antes ficava sem letra a faixa toda)
+    _enviar_letra(k)
+def _enviar_letra(k):
+    corpo = json.dumps({'k': '%s|%s' % k, 'linhas': _letras.get(k)})
+    GLib.idle_add(lambda: web.evaluate_javascript('window.letra && window.letra(%s)' % corpo, -1, None, None, None, None, None) and False)
+
+# Andamento (BPM) da faixa pelo Deezer (grátis, sem chave): com o som tocando em outro aparelho (Alexa,
+# caixa), as barras do layout música pulsam nessa batida, contada pela posição da faixa.
+_bpms = {}
+def _buscar_bpm(m):
+    import urllib.request, urllib.parse
+    k = (m['titulo'], m['artista']); bpm = None
+    try:
+        q = urllib.parse.quote('%s %s' % (m['artista'], m['titulo']))
+        d = json.load(urllib.request.urlopen(urllib.request.Request('https://api.deezer.com/search?q=%s&limit=5' % q, headers={'User-Agent': 'trava-saver'}), timeout=6))
+        art = (m['artista'] or '').split(',')[0].strip().lower()
+        for x in d.get('data', []):
+            if art and art not in x.get('artist', {}).get('name', '').lower():
+                continue
+            if m['dur'] and abs((x.get('duration') or 0) - m['dur']) > 6:
+                continue
+            tr = json.load(urllib.request.urlopen('https://api.deezer.com/track/%d' % x['id'], timeout=6))
+            if (tr.get('bpm') or 0) > 40:
+                bpm = round(float(tr['bpm']), 2); break
+    except Exception:
+        bpm = None
+    if len(_bpms) > 50: _bpms.clear()
+    _bpms[k] = bpm; _acorda.set()
+
+def _musica_laco():
+    ultimo, faixa, letra_env = None, None, 0.0
+    while True:
+        m = _ler_musica()
+        if m:
+            m['matiz'] = _matiz_async(m['capa'])
+            m['luz'] = _luzes.get(m['capa'])
+            m['bpm'] = _bpms.get((m['titulo'], m['artista']))
+            k = (m['titulo'], m['artista'])
+            if k != faixa:
+                faixa = k
+                if k not in _letras:
+                    _letras[k] = False
+                    threading.Thread(target=_buscar_letra, args=(dict(m),), daemon=True).start()
+                letra_env = 0.0
+                if k not in _bpms:
+                    _bpms[k] = None
+                    threading.Thread(target=_buscar_bpm, args=(dict(m),), daemon=True).start()
+            if k in _letra_falha and time.time() - _letra_falha[k] > 30:
+                _letra_falha[k] = time.time(); _letras[k] = False
+                threading.Thread(target=_buscar_letra, args=(dict(m),), daemon=True).start()
+            if _letras.get(k) is not False and time.time() - letra_env > 15 and _pronta[0]:
+                letra_env = time.time(); _enviar_letra(k)     # reenvia de vez em quando: a página pode ter recarregado
+        _som_on[0] = bool(m and m['tocando'] and (_tela_vista[0] or ('auto',))[0] in ('auto', 'musica') and globals().get('_ligada', [True])[0])
+        estado = json.dumps(m)
+        if estado != ultimo and _pronta[0]:
+            ultimo = estado
+            GLib.idle_add(lambda e=estado: web.evaluate_javascript('window.musica && window.musica(%s)' % e, -1, None, None, None, None, None) and False)
+        _acorda.wait(1.5); _acorda.clear()
+# Som ao vivo para as ondas do layout música: lê o monitor da saída de áudio (parec), separa 6 faixas
+# de frequência por FFT e manda ~30 vezes por segundo para window.som. Só roda com música tocando e o
+# layout música possível; sem isso o parec é encerrado. ATRASO compensa a caixa Bluetooth (o som sai
+# depois do que o PC entrega). Ajuste em ~/.config/trava-local: TRAVA_SOM_ATRASO=0.2
+_som_on = [False]
+def _som_local():
+    """Tem som saindo pelo PC? (algum fluxo tocando numa saída) — então lê o monitor; se não, o microfone."""
+    try:
+        out = subprocess.run(['pactl', 'list', 'short', 'sink-inputs'], capture_output=True, text=True, timeout=2).stdout
+        return bool(out.strip())
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+def _som_laco():
+    # Fonte: monitor da saída quando o som sai pelo PC (exato, com ATRASO da caixa Bluetooth);
+    # microfone do notebook quando a música toca em outro aparelho (Alexa): sem atraso, com porta de ruído.
+    # Nada é gravado: só energia por faixa de frequência, em memória.
+    import numpy as np, collections
+    RATE, N, HOP = 22050, 2048, 735
+    try: ATRASO = float(os.environ.get('TRAVA_SOM_ATRASO', '0.2'))
+    except ValueError: ATRASO = 0.2
+    janela = np.hanning(N); f = np.fft.rfftfreq(N, 1 / RATE)
+    FAIXAS = [(30, 90), (90, 250), (250, 700), (700, 2000), (2000, 5000), (5000, 10000)]
+    idx = [(np.searchsorted(f, a), np.searchsorted(f, b)) for a, b in FAIXAS]
+    proc, fonte, buf, pico, fila, ultimo, checado = None, None, np.zeros(N), np.full(len(FAIXAS) + 1, 1e-4), collections.deque(), 0.0, 0.0
+    def parar():
+        nonlocal proc
+        if proc:
+            proc.kill(); proc.wait(); proc = None
+    while True:
+        if not _som_on[0]:
+            if proc:
+                parar()
+                GLib.idle_add(lambda: web.evaluate_javascript('window.som && window.som(null)', -1, None, None, None, None, None) and False)
+            fila.clear(); fonte = None; time.sleep(.3); continue
+        if time.time() - checado > 3:
+            checado = time.time()
+            nova = 'monitor' if _som_local() else 'mic'
+            if nova != fonte:
+                parar(); fonte = nova; fila.clear(); pico[:] = 1e-4
+        if proc is None:
+            dev = '@DEFAULT_MONITOR@' if fonte == 'monitor' else '@DEFAULT_SOURCE@'
+            try:
+                proc = subprocess.Popen(['parec', '--device=' + dev, '--format=s16le', f'--rate={RATE}', '--channels=1',
+                                         '--latency-msec=20'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            except OSError:
+                time.sleep(5); continue
+        d = proc.stdout.read(HOP * 2)
+        if not d:
+            proc = None; time.sleep(1); continue
+        x = np.frombuffer(d, '<i2').astype(np.float32) / 32768
+        buf = np.concatenate([buf[len(x):], x])
+        e = np.abs(np.fft.rfft(buf * janela))
+        rms = float(np.sqrt((x * x).mean()))
+        v = np.array([e[a:b].mean() if b > a else 0 for a, b in idx] + [rms])
+        pico = np.maximum(pico * (.995 if fonte == 'mic' else .997), v); pico = np.maximum(pico, 1e-4)
+        n = np.clip(v / pico, 0, 1) ** (1.6 if fonte == 'mic' else 1.3)
+        if fonte == 'mic' and rms < .0025:            # porta de ruído: sala em silêncio não mexe as barras
+            n = n * (rms / .0025) ** 2
+        atraso = ATRASO if fonte == 'monitor' else 0.0
+        fila.append((time.time() + atraso, [round(float(q), 3) for q in n]))
+        agora = time.time()
+        while fila and fila[0][0] <= agora:
+            _, q = fila.popleft()
+            if agora - ultimo >= .03:
+                ultimo = agora
+                GLib.idle_add(lambda q=q: web.evaluate_javascript('window.som && window.som(%s)' % json.dumps(q), -1, None, None, None, None, None) and False)
+
+# Player só na tela 3 (layout música); a tela 2 fica sem player.
+if PAGINA.endswith('radar.html'):
+    threading.Thread(target=_musica_laco, daemon=True).start()
+    # threading.Thread(target=_som_laco, daemon=True).start()   # barras do fundo removidas (11/11): sem captura de som
+    threading.Thread(target=_vigia_player, daemon=True).start()
+
+# Tela apagada por comando (DPMS): esconde a página — o WebKit para de desenhar e de animar, e o
+# adaptador USB da tela 3 para de gastar CPU. Volta sozinha quando a tela acorda.
+import ctypes
+try:
+    _x11, _xext = ctypes.CDLL('libX11.so.6'), ctypes.CDLL('libXext.so.6')
+    _x11.XOpenDisplay.restype = ctypes.c_void_p
+    _dpy = ctypes.c_void_p(_x11.XOpenDisplay(None))
+except OSError:
+    _dpy = None
+_ligada = [True]
+def _energia():
+    nivel, ativo = ctypes.c_uint16(0), ctypes.c_ubyte(0)
+    _xext.DPMSInfo(_dpy, ctypes.byref(nivel), ctypes.byref(ativo))
+    ligada = not (ativo.value and nivel.value)
+    if ligada != _ligada[0]:
+        _ligada[0] = ligada
+        web.show() if ligada else web.hide()
+    return True
+if _dpy:
+    GLib.timeout_add(1000, _energia)
+
+signal.signal(signal.SIGTERM, lambda *_: Gtk.main_quit())
+signal.signal(signal.SIGINT, lambda *_: Gtk.main_quit())
+Gtk.main()

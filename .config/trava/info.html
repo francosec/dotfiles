@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Notícias</title>
+<!-- Tela lateral do bloqueio (notebook, 1366x768): só notícias (o tempo está todo na tela da tela 3, radar.html).
+     Dados: ~/.cache/trava-noticias.js (o bloqueio atualiza a cada 10 min; a página relê sozinha).
+     Nada anima continuamente: troca curta de opacidade a cada 12 s. Parada, não gasta CPU. -->
+<link rel="stylesheet" href="file:///home/arthos/.cache/wal/colors.css">
+<style>
+  :root { --fg: var(--foreground, #e2e2e2); --suave: color-mix(in srgb, var(--fg) 74%, transparent); --fraco: color-mix(in srgb, var(--fg) 45%, transparent);
+    --linha: color-mix(in srgb, var(--fg) 12%, transparent); --vidro: color-mix(in srgb, var(--fg) 5%, transparent);
+    --rn: #ffcf7a; --br: #8fc8ff; }
+  * { margin: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; cursor: none; color: var(--fg);
+    background: radial-gradient(ellipse 90% 70% at 18% 0%, #171c28, #090a0e 72%);
+    font-family: "Adwaita Sans", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 18px; padding: 28px 36px 24px; }
+  .topo { display: flex; align-items: baseline; justify-content: space-between; }
+  .topo h1 { font-size: 13px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase; color: var(--fraco); }
+  .topo h1 b { color: var(--fg); font-weight: 600; letter-spacing: .12em; }
+  .topo .quando { font-size: 13px; color: var(--fraco); font-variant-numeric: tabular-nums; }
+  .palco { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px; min-height: 0; transition: opacity .32s ease; }
+  .palco.troca { opacity: 0; }
+  .manchete { position: relative; min-height: 0; border-radius: 22px; overflow: hidden; background: #14161c; border: 1px solid var(--linha); }
+  .manchete img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .manchete::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgb(6 7 10 / .97) 6%, rgb(6 7 10 / .7) 40%, rgb(6 7 10 / .05) 78%); }
+  .manchete .txt { position: absolute; left: 26px; right: 26px; bottom: 22px; z-index: 1; }
+  .manchete .tt { font-size: 29px; font-weight: 500; line-height: 1.2; letter-spacing: -.015em; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 1px 10px rgb(0 0 0 / .6); }
+  .selo { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 10px; }
+  .selo i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .selo.rn { color: var(--rn); } .selo.br { color: var(--br); }
+  .selo span { color: var(--suave); font-weight: 400; letter-spacing: .03em; text-transform: none; }
+  .lista { display: grid; grid-auto-rows: minmax(0, 1fr); gap: 12px; min-height: 0; }
+  .item { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 14px; align-items: center; min-height: 0; padding: 10px; border-radius: 18px;
+    background: var(--vidro); border: 1px solid var(--linha); }
+  .item img { width: 118px; height: 100%; max-height: 92px; object-fit: cover; border-radius: 12px; background: var(--linha); }
+  .item .tt { font-size: 15px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .item .selo { margin: 0 0 5px; font-size: 10px; }
+  .base { display: flex; align-items: center; justify-content: space-between; color: var(--fraco); font-size: 12px; }
+  .pontos { display: flex; gap: 5px; align-items: center; }
+  .pontos i { width: 6px; height: 6px; border-radius: 50%; background: var(--linha); }
+  .pontos i.ativo { width: 20px; border-radius: 6px; background: var(--fg); }
+  .vazio { color: var(--fraco); font-size: 16px; align-self: center; justify-self: center; grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<main>
+  <div class="topo"><h1><b>Notícias</b> · g1 Rio Grande do Norte e Brasil</h1><span class="quando" id="quando"></span></div>
+  <div class="palco" id="palco"></div>
+  <div class="base"><span id="contagem"></span><span class="pontos" id="pontos"></span></div>
+</main>
+<script src="file:///home/arthos/.cache/trava-noticias.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  const seguro = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  let N = window.NOTICIAS || [], vez = 0, relogio = 0, pausado = false;
+  const desde = t => { const m = Math.max(0, Math.round((Date.now() - new Date(t)) / 60000)); return m < 60 ? `há ${m} min` : m < 1440 ? `há ${Math.round(m / 60)} h` : `há ${Math.round(m / 1440)} d`; };
+  const selo = n => `<div class="selo ${n.origem === 'RN' ? 'rn' : 'br'}"><i></i>${n.origem === 'RN' ? 'Rio Grande do Norte' : 'Brasil'} <span>· ${desde(n.quando)}</span></div>`;
+  function pintar() {
+    const m = N[vez % N.length], resto = [1, 2, 3, 4].map(i => N[(vez + i) % N.length]).filter((x, i, a) => x && x !== m && a.indexOf(x) === i);
+    $('palco').innerHTML = `<div class="manchete">${m.img ? `<img src="${m.img}" alt="" onerror="this.remove()">` : ''}<div class="txt">${selo(m)}<div class="tt">${seguro(m.titulo)}</div></div></div>
+      <div class="lista">${resto.map(n => `<div class="item">${n.img ? `<img src="${n.img}" alt="" onerror="this.style.visibility='hidden'">` : '<img alt="">'}<div>${selo(n)}<div class="tt">${seguro(n.titulo)}</div></div></div>`).join('')}</div>`;
+    $('pontos').innerHTML = N.map((_, i) => `<i class="${i === vez % N.length ? 'ativo' : ''}"></i>`).join('');
+    $('contagem').textContent = `${vez % N.length + 1} de ${N.length} · troca a cada 12 s`;
+    const prox = N[(vez + 5) % N.length]; if (prox?.img) new Image().src = prox.img;
+  }
+  function girar() {
+    clearTimeout(relogio); relogio = setTimeout(girar, 12000);
+    if (pausado || N.length < 2) return;
+    vez = (vez + 1) % N.length; $('palco').classList.add('troca');
+    setTimeout(() => { pintar(); $('palco').classList.remove('troca'); }, 340);
+  }
+  function noticias() {
+    if (!N.length) { $('palco').innerHTML = '<p class="vazio">sem notícias no momento</p>'; $('pontos').innerHTML = ''; $('contagem').textContent = ''; return; }
+    vez %= N.length; pintar(); clearTimeout(relogio); relogio = setTimeout(girar, 12000);
+  }
+  const hora = () => { $('quando').textContent = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }); };
+  hora(); setInterval(hora, 60000);
+  noticias();
+
+  // ── Campo de senha aberto na tela principal: congela aqui.
+  window.senha = e => { pausado = e.fase === 'digitando' || e.fase === 'verificando'; };
+
+  // ── Notícias novas: relê o arquivo sem recarregar a página.
+  const cara = () => (window.NOTICIAS || []).map(n => n.titulo).join('|');
+  let lidas = cara();
+  setInterval(() => {
+    if (pausado) return;
+    const s = document.createElement('script'); s.src = `file:///home/arthos/.cache/trava-noticias.js?${Date.now()}`;
+    s.onload = s.onerror = () => { s.remove(); if (cara() !== lidas) { lidas = cara(); N = window.NOTICIAS || []; vez = 0; noticias(); } };
+    document.head.append(s);
+  }, 30000);
+</script>
+</body>
+</html>

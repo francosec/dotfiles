@@ -1,0 +1,108 @@
+#!/bin/bash
+# Baby Shark em loop, tela cheia, som na caixa Bluetooth a 48%.
+# Uso: baby-shark [tela3|tela2|direita|esquerda|trocar|parar]   (padrão: tela3 = direita; tela2 = meio).
+#   direita/esquerda: leva o vídeo do mpv que está aberto uma tela para o lado, sem recomeçar.
+#   trocar: alterna entre tela 2 e tela 3.
+# Chamado pela Alexa ("Tubarão", "Tela direita", "Tela esquerda") via arthos-alexa.
+# mpv + yt-dlp em vez do Brave: sem bloqueio de autoplay, sem limite de telas do Premium, loop nativo.
+# Formato H.264 (avc1): a GPU Intel decodifica; AV1 iria para a CPU e travava.
+
+URL="https://www.youtube.com/watch?v=_ltUOaMiiQM"
+. "$HOME/.local/share/dispositivos.env" 2>/dev/null
+CAIXA="${CAIXA_MAC:-}"
+SINK="bluez_output.${CAIXA//:/_}.1"
+TELA2="HDMI-1"           # meio
+TELA3="DVI-I-2-2"   # direita
+VOLUME="48%"
+TITULO="baby-shark"
+SOCK="${XDG_RUNTIME_DIR:-/tmp}/baby-shark.sock"
+export DISPLAY="${DISPLAY:-:0}"
+
+parar() { pkill -f -- "--title=$TITULO" 2>/dev/null; }
+janela() { xdotool search --onlyvisible --name "^$TITULO" 2>/dev/null | head -1; }
+# Qualquer mpv visível (o Baby Shark primeiro).
+janela_mpv() { { janela; xdotool search --onlyvisible --class mpv 2>/dev/null; } | head -1; }
+posx() { xdotool getwindowgeometry "$1" | grep -oP 'Position: \K-?[0-9]+'; }
+# Início (x) e largura de um monitor do xrandr.
+monitor() { xrandr --listmonitors | awk -v t="$1" '$NF==t{split($3,a,"+"); split(a[1],b,"/"); print a[2], b[1]}'; }
+# Tela cheia pelo socket IPC do mpv (true/false). Outro mpv sem o socket: tecla f (alterna) na janela $W.
+telacheia() {
+    if [ -n "$W" ] && [ "$W" != "$(janela)" ]; then
+        local fs; fs=$(xprop -id "$W" _NET_WM_STATE 2>/dev/null | grep -c FULLSCREEN)
+        { [ "$1" = true ] && [ "$fs" = 0 ]; } || { [ "$1" = false ] && [ "$fs" = 1 ]; } && xdotool key --window "$W" f
+        return
+    fi
+    python3 -I -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(("{\"command\":[\"set_property\",\"fullscreen\",%s]}\n" % sys.argv[2]).encode())' "$SOCK" "$1" 2>/dev/null
+}
+# Leva a janela $1 ao monitor $2. O dwm não move janela em tela cheia, então sai dela antes e volta no fim.
+# O dwm foca pelo mouse: o ponteiro vai para cima da janela para o tagmon (Super+Alt+←/→) agir nela.
+mover() {
+    local w=$1 x y x_tela l_tela mx my X Y; W=$w
+    read -r x_tela l_tela < <(monitor "$2")
+    eval "$(xdotool getmouselocation --shell)"; mx=$X; my=$Y
+    telacheia false; sleep 0.5
+    for _ in 1 2 3 4; do
+        x=$(posx "$w")
+        [ "$x" -ge "$x_tela" ] && [ "$x" -lt $((x_tela + l_tela)) ] && break
+        y=$(xdotool getwindowgeometry "$w" | grep -oP 'Position: -?[0-9]+,\K-?[0-9]+')
+        xdotool mousemove $((x + 200)) $((y + 200)); xdotool windowfocus --sync "$w" 2>/dev/null
+        if [ "$x" -lt "$x_tela" ]; then xdotool key super+alt+Right; else xdotool key super+alt+Left; fi
+        sleep 0.7
+    done
+    telacheia true
+    xdotool mousemove "$mx" "$my"
+}
+
+case "${1:-tela3}" in
+    tela3) TELA=$TELA3 ;;
+    tela2) TELA=$TELA2 ;;
+    parar) parar; exit 0 ;;
+    trocar)
+        w=$(janela); [ -z "$w" ] && { echo "baby-shark: nada tocando" >&2; exit 1; }
+        read -r x_t2 l_t2 < <(monitor "$TELA2")
+        x=$(posx "$w")
+        if [ "$x" -ge "$x_t2" ] && [ "$x" -lt $((x_t2 + l_t2)) ]; then mover "$w" "$TELA3"; else mover "$w" "$TELA2"; fi
+        exit 0 ;;
+    direita|esquerda)
+        w=$(janela_mpv); [ -z "$w" ] && { echo "baby-shark: nenhum vídeo no mpv" >&2; exit 1; }
+        x=$(posx "$w")
+        # Monitores da esquerda para a direita; o alvo é o vizinho do monitor onde a janela está.
+        alvo=$(xrandr --listmonitors | awk 'NR>1{split($3,a,"+"); split(a[1],b,"/"); print a[2], b[1], $NF}' | sort -n |
+            awk -v x="$x" -v d="$1" '{xs[NR]=$1; ls[NR]=$2; n[NR]=$3; if (x>=$1 && x<$1+$2) i=NR}
+                END{j = (d=="direita") ? i+1 : i-1; if (i && j>=1 && j<=NR) print n[j]}')
+        [ -z "$alvo" ] && { echo "baby-shark: não há tela à $1" >&2; exit 1; }
+        mover "$w" "$alvo"; exit 0 ;;
+    *) echo "uso: baby-shark [tela3|tela2|direita|esquerda|trocar|parar]" >&2; exit 2 ;;
+esac
+
+# Caixa: conecta se precisar (até 3 tentativas) e vira a saída padrão. Sem ela, toca na saída atual.
+if ! bluetoothctl info "$CAIXA" 2>/dev/null | grep -q "Connected: yes"; then
+    for _ in 1 2 3; do timeout 15 bluetoothctl connect "$CAIXA" >/dev/null 2>&1 && break; sleep 2; done
+fi
+for _ in $(seq 1 10); do pactl list short sinks | grep -q "$SINK" && break; sleep 1; done
+if pactl list short sinks | grep -q "$SINK"; then
+    pactl set-default-sink "$SINK"
+    for i in $(pactl list short sink-inputs | cut -f1); do pactl move-sink-input "$i" "$SINK" 2>/dev/null; done
+fi
+pactl set-sink-volume @DEFAULT_SINK@ "$VOLUME"
+
+# Pausa o que estiver tocando (YouTube no Brave, Spotify) e troca um Baby Shark antigo por um novo.
+playerctl -a pause 2>/dev/null
+parar
+# Espera a janela antiga sumir; senão a busca abaixo pegaria a janela que está fechando.
+for _ in $(seq 1 20); do xdotool search --name "^$TITULO" >/dev/null 2>&1 || break; sleep 0.25; done
+
+# Abre sem tela cheia (o mover põe no fim). systemd-run --scope: o mpv fica num grupo próprio e não morre
+# quando o arthos-alexa (que chama este script) é reiniciado.
+systemd-run --user --scope --quiet --collect setsid -f mpv --title="$TITULO" --input-ipc-server="$SOCK" --fs-screen-name="$TELA" --screen-name="$TELA" \
+    --input-conf=/dev/null --video-rotate=0 \
+    --loop-file=inf --volume=100 --hwdec=auto-safe --force-window=immediate \
+    --ytdl-format='bv*[vcodec^=avc1][height<=1080]+ba/b[height<=1080]' \
+    "$URL" >/dev/null 2>&1
+
+for _ in $(seq 1 30); do w=$(janela); [ -n "$w" ] && break; sleep 0.5; done
+[ -z "$w" ] && exit 1
+# A posição pedida pelo mpv aparece antes do dwm assumir a janela (e jogá-la no monitor em foco); espera assentar.
+sleep 1.5
+mover "$w" "$TELA"
+exit 0

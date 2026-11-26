@@ -5,20 +5,21 @@ hi_bar_color="#ffffff"
 volume_step=5
 max_volume=125
 
-# Uses regex to get volume from pactl
-function get_volume {
-    pactl get-sink-volume @DEFAULT_SINK@ | grep -Po '[0-9]{1,3}(?=%)' | head -1
-}
+dev="@DEFAULT_AUDIO_SINK@"
 
-# Uses regex to get mute status from pactl
-function get_mute {
-    pactl get-sink-mute @DEFAULT_SINK@ | grep -Po '(?<=Mute: )(yes|no)'
+# Lê volume e mudo numa chamada só ao wpctl.
+# Saída: "Volume: 0.48" ou "Volume: 0.48 [MUTED]"
+function read_state {
+    set -- $(wpctl get-volume "$dev")
+    local v="${2%.*}${2#*.}"
+    v=${v#0}; v=${v#0}
+    volume=$v
+    if [ "$3" = "[MUTED]" ]; then mute=yes; else mute=no; fi
 }
 
 # Returns a mute icon, a volume-low icon, or a volume-high icon, depending on the volume
 function get_volume_icon {
-    volume=$(get_volume)
-    mute=$(get_mute)
+    read_state
     if [ "$volume" -eq 0 ] || [ "$mute" == "yes" ] ; then
         volume_icon="󰸈"
     elif [ "$volume" -le 25 ]; then
@@ -34,7 +35,6 @@ function get_volume_icon {
 
 # Displays a volume notification using dunstify
 function show_volume_notif {
-    volume=$(get_mute)
     get_volume_icon
     if [ "$volume" -gt 100 ]; then
         dunstify -i volume -t 1000 -r 2593 -u normal "$volume_icon  $volume%" -h int:value:$volume -h string:hlcolor:$hi_bar_color
@@ -47,27 +47,22 @@ function show_volume_notif {
 case $1 in
     up)
     # Unmutes and increases volume, then displays the notification
-    pactl set-sink-mute @DEFAULT_SINK@ 0
-    volume=$(get_volume)
-    if [ $(( "$volume" + "$volume_step" )) -gt $max_volume ]; then
-        pactl set-sink-volume @DEFAULT_SINK@ $max_volume%
-    else
-        pactl set-sink-volume @DEFAULT_SINK@ +$volume_step%
-    fi
+    wpctl set-mute "$dev" 0
+    wpctl set-volume -l "$(printf '%d.%02d' $((max_volume / 100)) $((max_volume % 100)))" "$dev" "$volume_step%+"
     show_volume_notif
     kill -41 $(pidof dwmblocks)
     ;;
 
     down)
-    # Raises volume and displays the notification
-    pactl set-sink-volume @DEFAULT_SINK@ -$volume_step%
+    # Lowers volume and displays the notification
+    wpctl set-volume "$dev" "$volume_step%-"
     show_volume_notif
     kill -41 $(pidof dwmblocks)
     ;;
 
     mute)
     # Toggles mute and displays the notification
-    pactl set-sink-mute @DEFAULT_SINK@ toggle
+    wpctl set-mute "$dev" toggle
     show_volume_notif
     kill -41 $(pidof dwmblocks)
     ;;

@@ -5,10 +5,10 @@
  *
  * font: see http://freedesktop.org/software/fontconfig/fontconfig-user.html
  */
-static char *font = "JetBrainsMono Nerd Font:style=Bold:pixelsize=10:antialias=true:autohint=true";
+static char *font = "JetBrainsMono Nerd Font:style=Bold:pixelsize=14:antialias=true:autohint=true";
 
 /* Spare fonts */
-static char *font2[] = { "NotoColorEmoji:pixelsize=10:antialias=true:autohint=true" };
+static char *font2[] = { "NotoColorEmoji:pixelsize=14:antialias=true:autohint=true" };
 
 static int borderpx = 20;
 
@@ -279,8 +279,8 @@ static Shortcut shortcuts[] = {
   { TERMMOD,              XK_Num_Lock,    numlock,        {.i =  0} },
   { ShiftMask,            XK_Page_Up,     kscrollup,      {.i = -1} },
   { ShiftMask,            XK_Page_Down,   kscrolldown,    {.i = -1} },
-  { Mod1Mask,             XK_a,           changealpha,    {.f = -0.05} },
-  { Mod1Mask,             XK_s,           changealpha,    {.f = +0.05} },
+  { TERMMOD,              XK_A,           changealpha,    {.f = -0.05} },
+  { TERMMOD,              XK_S,           changealpha,    {.f = +0.05} },
 };
 
 /*

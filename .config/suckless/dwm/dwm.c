@@ -75,7 +75,7 @@
 /* enums */
 enum { Manager, Xembed, XembedInfo, XLast }; /* Xembed atoms */
 enum { CurNormal, CurResize, CurMove, CurDragFact, CurLast }; /* cursor */
-enum { SchemeNorm, SchemeSel, SchemeHid }; /* color schemes */
+enum { SchemeNorm, SchemeSel, SchemeHid, SchemeDim }; /* color schemes */
 enum { NetSupported, NetSystemTray, NetSystemTrayOP, NetSystemTrayOrientation, NetSystemTrayVisual,
 	   NetWMName, NetWMIcon, NetWMState, NetWMFullscreen, NetWMSticky, NetActiveWindow, NetWMWindowType, NetWMWindowTypeDock,
 	   NetSystemTrayOrientationHorz, NetWMWindowTypeDialog, NetClientList, NetClientInfo, NetWMCheck, NetLast }; /* EWMH atoms */
@@ -691,6 +691,39 @@ unswallow(Client *c)
 	arrange(c->mon);
 }
 
+/* Desenha um trecho do status a partir de x; cada '|' sai na cor apagada (SchemeDim),
+ * para os separadores do dwmblocks não competirem com as informações.
+ * folga = largura extra do último pedaço (o ícone Nerd Font passa da largura do caractere
+ * e sairia cortado). Devolve a largura do texto (igual a TEXTW(text) - lrpad). */
+static int
+drawstatustext(int x, char *text, int folga)
+{
+	char *p, ch;
+	int w, x0 = x;
+
+	for (p = text; ; p++) {
+		if (*p != '|' && *p != '\0')
+			continue;
+		ch = *p;
+		*p = '\0';
+		if (*text) {
+			w = TEXTW(text) - lrpad;
+			drw_text(drw, x, 0, w + (ch ? 0 : folga), bh, 0, text, 0);
+			x += w;
+		}
+		*p = ch;
+		if (!ch)
+			break;
+		drw_setscheme(drw, scheme[SchemeDim]);
+		w = TEXTW("|") - lrpad;
+		drw_text(drw, x, 0, w, bh, 0, "|", 0);
+		x += w;
+		drw_setscheme(drw, scheme[SchemeSel]);
+		text = p + 1;
+	}
+	return x - x0;
+}
+
 #if HIDEVACANT
 
 void
@@ -982,15 +1015,14 @@ drawbar(Monitor *m)
 			if ((unsigned char)(*s) < ' ') {
 				ch = *s;
 				*s = '\0';
-				tw = TEXTW(text) - lrpad;
-				drw_text(drw, m->ww - statusw - stw - 2 * sp + x, 0, tw, bh, 0, text, 0);
-				x += tw;
+				x += drawstatustext(m->ww - statusw - stw - 2 * sp + x, text, 0);
 				*s = ch;
 				text = s + 1;
 			}
 		}
 		tw = TEXTW(text) - lrpad + 12;
-		drw_text(drw, m->ww - tw - stw - 2 * sp, 0, tw, bh, 0, text, 0);
+		/* o último pedaço ganha os 12 px de folga, como antes: o ícone não sai cortado */
+		drawstatustext(m->ww - tw - stw - 2 * sp, text, 12);
 		tw = statusw;
 	}
 
@@ -1395,16 +1427,28 @@ detachstack(Client *c)
 Monitor *
 dirtomon(int dir)
 {
-	Monitor *m = NULL;
+	/* escolhe pela posição X real (esquerda/direita), não pela ordem do Xinerama;
+	 * na ponta, dá a volta para o monitor do outro extremo */
+	Monitor *m, *best = NULL, *wrap = NULL;
 
-	if (dir > 0) {
-		if (!(m = selmon->next))
-			m = mons;
-	} else if (selmon == mons)
-		for (m = mons; m->next; m = m->next);
-	else
-		for (m = mons; m->next != selmon; m = m->next);
-	return m;
+	for (m = mons; m; m = m->next) {
+		if (m == selmon)
+			continue;
+		if (dir > 0) {
+			if (m->mx > selmon->mx && (!best || m->mx < best->mx))
+				best = m;
+			if (!wrap || m->mx < wrap->mx)
+				wrap = m;
+		} else {
+			if (m->mx < selmon->mx && (!best || m->mx > best->mx))
+				best = m;
+			if (!wrap || m->mx > wrap->mx)
+				wrap = m;
+		}
+	}
+	if (best)
+		return best;
+	return wrap ? wrap : selmon;
 }
 
 void
@@ -1569,6 +1613,14 @@ focusmon(const Arg *arg)
 	unfocus(selmon->sel, 0);
 	selmon = m;
 	focus(NULL);
+	/* cursor acompanha o foco, para o mouse não puxar de volta */
+	if (selmon->sel)
+		XWarpPointer(dpy, None, selmon->sel->win, 0, 0, 0, 0,
+			selmon->sel->w / 2, selmon->sel->h / 2);
+	else
+		XWarpPointer(dpy, None, root, 0, 0, 0, 0,
+			selmon->wx + selmon->ww / 2, selmon->wy + selmon->wh / 2);
+	XSync(dpy, False);
 }
 
 void
@@ -3504,9 +3556,18 @@ tag(const Arg *arg)
 void
 tagmon(const Arg *arg)
 {
-	if (!selmon->sel || !mons->next)
+	Client *c = selmon->sel;
+	Monitor *m;
+
+	if (!c || !mons->next)
 		return;
-	sendmon(selmon->sel, dirtomon(arg->i));
+	m = dirtomon(arg->i);
+	sendmon(c, m);
+	/* foco e cursor seguem a janela: dá para mandar de volta na hora */
+	selmon = m;
+	focus(c);
+	XWarpPointer(dpy, None, c->win, 0, 0, 0, 0, c->w / 2, c->h / 2);
+	XSync(dpy, False);
 }
 
 void

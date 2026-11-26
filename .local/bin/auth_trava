@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+# Módulo de senha do xsecurelock (XSECURELOCK_AUTH=auth_trava; link em /usr/lib/xsecurelock).
+# Recebe as teclas pelo stdin (o xsecurelock repassa), guarda a senha só aqui e confere pelo
+# authproto_pam (o mesmo PAM do sistema). Para a página, publica apenas o ESTADO — quantos
+# caracteres, verificando, erro — em $XDG_RUNTIME_DIR/trava-senha.json; nunca a senha.
+# Saída 0 = autenticado; qualquer outra = falhou/cancelou (o xsecurelock continua bloqueado).
+import json, os, re, select, subprocess, sys, time, getpass
+
+ESTADO = os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'trava-senha.json')
+AUTHPROTO = '/usr/lib/xsecurelock/' + os.environ.get('XSECURELOCK_AUTHPROTO', 'authproto_pam')
+TEMPO = int(os.environ.get('XSECURELOCK_AUTH_TIMEOUT', '60'))
+
+def publicar(fase, n=0, msg=''):
+    tmp = ESTADO + '.tmp'
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as f:
+        json.dump({'fase': fase, 'n': n, 'msg': msg, 't': time.time()}, f)
+    os.replace(tmp, ESTADO)
+
+def ler_pacote(f):
+    cab = f.readline()
+    if not cab:
+        return None, None
+    tipo, tam = cab.decode().rstrip('\n').split(' ', 1)
+    dado = f.read(int(tam)) if int(tam) else b''
+    f.read(1)  # '\n' final
+    return tipo, dado.decode(errors='replace')
+
+def enviar_pacote(f, tipo, texto):
+    dado = texto.encode()
+    f.write(f'{tipo} {len(dado)}\n'.encode() + dado + b'\n')
+    f.flush()
+
+def autenticar(senha):
+    """Conversa com o authproto_pam; devolve (ok, mensagem)."""
+    p = subprocess.Popen([AUTHPROTO], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    msg, respondeu = '', False
+    try:
+        while True:
+            tipo, dado = ler_pacote(p.stdout)
+            if tipo is None:
+                break
+            if tipo == 'P':            # pede a senha (sem eco)
+                # Só UMA resposta por Enter: se o PAM pedir de novo (senha errada), cancela.
+                # Repetir a mesma senha virava 3 falhas e travava a conta (pam_faillock).
+                # Cancelar a 2ª tentativa também contaria como falha; encerrar o processo
+                # enquanto ela espera a resposta não registra nada.
+                if respondeu:
+                    p.kill(); p.wait(); return False, msg
+                else:
+                    enviar_pacote(p.stdin, 'p', senha); respondeu = True
+            elif tipo == 'U':          # pede usuário (com eco)
+                enviar_pacote(p.stdin, 'u', getpass.getuser())
+            elif tipo in ('i', 'e'):   # informação / erro do PAM
+                msg = dado
+    except (BrokenPipeError, ValueError):
+        pass
+    return p.wait() == 0, msg
+
+def main():
+    fd = sys.stdin.fileno()
+    senha = bytearray()
+    contar = lambda: len(senha.decode('utf-8', errors='ignore'))
+    publicar('digitando', 0)
+    ultimo = time.time()
+    while True:
+        pronto, _, _ = select.select([fd], [], [], 0.5)
+        if not pronto:
+            if time.time() - ultimo > TEMPO:
+                publicar('fechado'); return 1
+            continue
+        bloco = os.read(fd, 64)
+        if not bloco:
+            publicar('fechado'); return 1
+        ultimo = time.time()
+        for b in bloco:
+            if b in (13, 10):                      # Enter
+                if not senha:
+                    continue
+                contar_ok = contar()
+                publicar('verificando', contar_ok)
+                if os.environ.get('TRAVA_DEBUG'):
+                    txt = senha.decode('utf-8', errors='replace')
+                    with open(os.path.expanduser('~/.cache/auth_trava.log'), 'a') as f:
+                        print(time.strftime('%H:%M:%S'), 'caracteres', len(txt), 'maiusculas', sum(c.isupper() for c in txt),
+                              'nao-ascii', sum(ord(c) > 127 for c in txt), file=f)
+                ok, msg = autenticar(senha.decode('utf-8', errors='replace'))
+                for i in range(len(senha)):
+                    senha[i] = 0
+                senha.clear()
+                if ok:
+                    # Senha já aceita: segura 0,9 s para a página mostrar o cadeado abrindo.
+                    publicar('ok', contar_ok); time.sleep(0.9); return 0
+                m = re.search(r'(\d+) minutes? left', msg or '')
+                publicar('erro', 0, f'muitas tentativas — aguarde {m.group(1)} min' if m else 'senha incorreta — tente de novo')
+                ultimo = time.time()
+            elif b in (8, 127):                    # Backspace: apaga um caractere UTF-8 inteiro
+                while senha and (senha[-1] & 0xC0) == 0x80:
+                    senha.pop()
+                if senha:
+                    senha.pop()
+                publicar('digitando', contar())
+            elif b in (21, 23):                    # Ctrl-U / Ctrl-W: limpa
+                senha.clear(); publicar('digitando', 0)
+            elif b == 27:                          # Esc: fecha o campo
+                publicar('fechado'); return 1
+            elif b >= 32 or b >= 128:
+                senha.append(b)
+                publicar('digitando', contar())
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception:
+        publicar('fechado')
+        sys.exit(1)

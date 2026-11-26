@@ -1,0 +1,79 @@
+### Settings from original zathurarc ###
+set statusbar-h-padding 0
+set statusbar-v-padding 0
+map r reload
+# map i color
+map w toggle_page_mode
+
+### zathura-pywal ###
+# Allow recolor
+set recolor 'true'
+
+# Don't allow original hue when recoloring
+set recolor-keephue 'false'
+
+# Don't keep original image colors while recoloring
+set recolor-reverse-video 'false'
+
+# Command line completion entries
+set completion-fg "#95e2f2"
+set completion-bg "#020A13"
+
+# Command line completion group elements
+set completion-group-fg "#2174CD"
+set completion-group-bg "#020A13"
+
+# Current command line completion element
+set completion-highlight-fg "#020A13"
+set completion-highlight-bg "#95e2f2"
+
+# Default foreground/background color
+set default-bg rgba(16,19,22,1)
+
+# Input bar
+set inputbar-fg "#95e2f2"
+set inputbar-bg "#020A13"
+
+# Notification
+set notification-fg "#95e2f2"
+set notification-bg "#020A13"
+
+# Error notification
+set notification-error-fg "#95e2f2"
+set notification-error-bg "#2497EA"
+
+# Warning notification
+set notification-warning-fg "#95e2f2"
+set notification-warning-bg "#2497EA"
+
+# Tab - TODO
+# set tabbar-fg
+# set tabbar-bg
+
+# Focused tab - TODO
+# set tabbar-focus-fg
+# set tabbar-focus-bg
+
+# Status bar
+set statusbar-fg "#95e2f2"
+set statusbar-bg "#020A13"
+
+# Highlighting parts of the document (e.g. show search results)
+set highlight-color "#2174CD"
+set highlight-active-color "#2174CD"
+
+# Represent light/dark colors in recoloring mode
+set recolor-lightcolor rgba(0,0,0,0)
+set recolor-darkcolor "#95e2f2"
+
+# 'Loading...' text
+set render-loading-fg "#95e2f2"
+set render-loading-bg "#020A13"
+
+# Index mode
+set index-fg "#95e2f2"
+set index-bg "#020A13"
+
+# Selected element in index mode
+set index-active-fg "#95e2f2"
+set index-active-bg "#020A13"

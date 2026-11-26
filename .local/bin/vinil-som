@@ -1,0 +1,56 @@
+#!/bin/bash
+# vinil-som: manda a música do Spotify junto com a voz para a chamada (Meet, Discord no Brave).
+# Uso: vinil-som          liga/desliga
+#      vinil-som criar    só cria o microfone "Vinil+Mic", sem mexer na chamada
+# Entra só o Spotify: o som da própria chamada fica fora (senão os outros se ouviriam).
+# O mudo do microfone do PC corta a voz, não a música; o mudo do Meet corta os dois.
+# Usa o microfone do notebook: o do fone Bluetooth derruba o som para o modo de chamada (mono).
+SPOT=spotify MIX=vinil_mix FONTE=vinil_mic
+RUN="${XDG_RUNTIME_DIR:-/tmp}/vinil-som.pid"
+export LC_ALL=C
+modulos() { pactl list short modules | awk -F'\t' '$3 ~ /vinil_(mix|mic)/ {print $1}' | sort -rn; }
+entradas() { pactl list source-outputs | awk '/^Source Output/{id=substr($3,2)} /application.name = "Brave input"/{print id}'; }
+avisa() { dunstify -t 3000 -r 2594 "Vinil" "$1" 2>/dev/null; echo "$1"; }
+mic() { pactl list short sources | awk '$2 ~ /^alsa_input.pci/ {print $2; exit}'; }
+
+desligar() {
+  padrao=$(pactl get-default-source)
+  [ "$padrao" = "$FONTE" ] && padrao=$(mic)
+  for i in $(entradas); do pactl move-source-output "$i" "$padrao"; done
+  [ -f "$RUN" ] && kill "$(cat "$RUN")" 2>/dev/null
+  rm -f "$RUN"
+  for m in $(modulos); do pactl unload-module "$m"; done
+}
+
+if [ -n "$(modulos)" ]; then
+  desligar; avisa "Música fora da chamada"; exit 0
+fi
+
+MICRO=$(mic)
+[ -n "$MICRO" ] || { avisa "Microfone do notebook não encontrado"; exit 1; }
+# Saindo do mic do fone: herda o mudo, para ninguém ser ouvido sem querer.
+padrao=$(pactl get-default-source)
+if [ "$padrao" != "$MICRO" ]; then
+  case "$(pactl get-source-mute "$padrao")" in *yes) pactl set-source-mute "$MICRO" 1;; esac
+  pactl set-default-source "$MICRO"
+fi
+pactl load-module module-null-sink sink_name=$MIX sink_properties=device.description=VinilMix >/dev/null &&
+pactl load-module module-remap-source master=$MIX.monitor source_name=$FONTE source_properties=device.description=Vinil+Mic >/dev/null ||
+  { desligar; avisa "Falha ao criar o microfone Vinil+Mic"; exit 1; }
+pactl set-default-source "$MICRO"
+sleep .5
+
+# O Spotify recria a saída ao trocar de faixa ou de fone: religa quando precisar.
+( while [ -n "$(modulos)" ]; do
+    for c in FL FR; do
+      pw-link "$SPOT:output_$c" "$MIX:playback_$c" 2>/dev/null
+      pw-link "$MICRO:capture_$c" "$MIX:playback_$c" 2>/dev/null
+    done
+    sleep 2
+  done ) >/dev/null 2>&1 &
+echo $! > "$RUN"
+
+if [ "$1" != criar ]; then
+  for i in $(entradas); do pactl move-source-output "$i" $FONTE; done
+  avisa "Música do Spotify na chamada"
+fi

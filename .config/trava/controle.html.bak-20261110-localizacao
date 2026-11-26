@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f1217">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="referrer" content="no-referrer">
+<title>Radar da chuva</title>
+<link rel="icon" type="image/svg+xml" href="/icone.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="/icone-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Radar">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+  :root { --bg: #0f1217; --vidro: rgb(20 24 31 / .86); --linha: rgb(255 255 255 / .09); --fg: #e8eaed; --suave: #c9ced4; --fraco: #8f98a3;
+    --azul: #6cd1eb; --verde: #86d9a4; --ambar: #ffb700; --erro: #ff8f80; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.35 Inter, system-ui, sans-serif; overflow: hidden; }
+  #mapa { position: fixed; inset: 0; background: var(--bg); }
+  .leaflet-container { background: var(--bg); font: inherit; }
+  .leaflet-control-attribution { background: rgb(15 18 23 / .6) !important; color: #6b7480 !important; font-size: 9px; }
+  .leaflet-control-attribution a { color: #8a939e !important; }
+  .cartao { background: var(--vidro); border: 1px solid var(--linha); border-radius: 18px;
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+  .rot { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--fraco); }
+
+  /* Chip no topo: só o essencial */
+  .chip { position: fixed; z-index: 1000; left: 12px; top: calc(env(safe-area-inset-top) + 12px); max-width: calc(100vw - 88px);
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 13px; border-radius: 16px; }
+  .bolinha { width: 10px; height: 10px; border-radius: 50%; background: var(--verde); flex: none; box-shadow: 0 0 0 4px rgb(134 217 164 / .16); }
+  [data-cor=longe] .bolinha, [data-cor=chuva] .bolinha { background: var(--azul); box-shadow: 0 0 0 4px rgb(108 209 235 / .18); }
+  [data-cor=forte] .bolinha { background: var(--ambar); box-shadow: 0 0 0 4px rgb(255 183 0 / .2); }
+  .chip .titulo { font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip .hora { color: var(--fraco); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .vivo { width: 7px; height: 7px; border-radius: 50%; background: #5d636b; flex: none; }
+  .vivo.on { background: var(--verde); }
+  .vivo.erro { background: var(--erro); }
+
+  /* Botões flutuantes (direita) */
+  .fab { position: fixed; z-index: 1200; right: 12px; width: 48px; height: 48px; border-radius: 15px; border: 1px solid var(--linha);
+    background: var(--vidro); color: var(--fg); display: grid; place-items: center; padding: 0;
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); font: 400 24px Inter, system-ui, sans-serif; transition: right .3s ease, background .2s; }
+  .fab:active { transform: scale(.95); background: rgb(40 46 56 / .92); }
+  .fab svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #info { top: calc(env(safe-area-inset-top) + 12px); }
+  #info.aberto { background: #e8eaed; color: #11151b; }
+  .pilha { position: fixed; z-index: 1000; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 26px); display: grid; gap: 8px; justify-items: center; }
+  .pilha .fab { position: static; }
+  .pilha .nivel { color: var(--fraco); font-size: 10.5px; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #000; }
+
+  /* Gaveta da direita: tudo o que o monitor mostra */
+  .gaveta { position: fixed; z-index: 1100; top: calc(env(safe-area-inset-top) + 72px); right: 12px; max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 90px);
+    width: min(78vw, 330px); padding: 16px 16px 14px; overflow-y: auto; display: grid; align-content: start; gap: 18px;
+    transform: translateX(calc(100% + 24px)); transition: transform .32s cubic-bezier(.2, .8, .2, 1); }
+  .gaveta.aberta { transform: none; }
+  .gaveta .titulo { font-size: 22px; font-weight: 500; letter-spacing: -.01em; margin-top: 6px; }
+  .gaveta .sub { color: var(--suave); font-size: 13.5px; margin-top: 3px; }
+  .gaveta .modelo { color: var(--fraco); font-size: 12px; margin-top: 2px; }
+  .gaveta .estado { display: flex; gap: 11px; align-items: flex-start; }
+  .gaveta .estado .bolinha { margin-top: 15px; }
+  .gaveta .estado .vivo-txt { color: var(--fraco); font-size: 11px; margin-top: 8px; display: flex; align-items: center; gap: 6px; }
+  .sep { height: 1px; background: var(--linha); margin: -4px 0; }
+
+  /* Mapa: anéis, casa, linha até a chuva */
+  .anel-txt { color: rgb(255 255 255 / .55); font-size: 11px; letter-spacing: .05em; white-space: nowrap; text-shadow: 0 1px 3px #000; }
+  .casa { width: 26px; height: 26px; border-radius: 50%; background: rgb(255 255 255 / .1); border: 1.5px solid rgb(255 255 255 / .55); display: grid; place-items: center; }
+  .casa::after { content: ""; width: 11px; height: 11px; border-radius: 50%; background: #fff; border: 3px solid rgb(0 0 0 / .55); }
+  .casa-nome { transform: translate(calc(-100% - 20px), -50%); color: #fff; font-weight: 600; font-size: 13px; white-space: nowrap; text-shadow: 0 1px 4px #000, 0 0 2px #000; }
+  .alvo-txt { color: #fff; font-weight: 500; font-size: 13.5px; white-space: nowrap; text-shadow: 0 1px 4px #000, 0 0 2px #000; }
+  .cel-ponto { width: 9px; height: 9px; border-radius: 50%; background: var(--azul); border: 1.5px solid rgb(0 0 0 / .5); opacity: .9; }
+  .cel-ponto.forte { background: var(--ambar); }
+  .cel-txt { color: rgb(255 255 255 / .88); font-weight: 500; font-size: 12px; white-space: nowrap; text-shadow: 0 1px 3px #000, 0 0 2px #000; }
+  .alvo-ponto { width: 12px; height: 12px; border-radius: 50%; background: var(--azul); border: 2px solid rgb(0 0 0 / .5); }
+  .mira { position: fixed; z-index: 900; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; pointer-events: none; opacity: .4; }
+  .mira::before, .mira::after { content: ""; position: absolute; background: var(--fg); }
+  .mira::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  .mira::after { top: 10px; left: 0; height: 2px; width: 22px; }
+
+  /* Gaveta: quadro do radar, chance por hora, legenda */
+  .quadro { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .quadro b { font-size: 22px; font-weight: 400; font-variant-numeric: tabular-nums; }
+  .quadro span { color: var(--fraco); font-size: 12px; }
+  .marcas { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; margin-top: 8px; }
+  .marcas i { height: 5px; border-radius: 5px; background: var(--linha); }
+  .marcas i.passou { background: rgb(232 234 237 / .38); }
+  .marcas i.ativo { background: var(--fg); }
+  .ext { display: flex; justify-content: space-between; color: var(--fraco); font-size: 10.5px; margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .proximas { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin-top: 8px; }
+  .proximas .h { display: grid; justify-items: center; gap: 5px; font-size: 10.5px; color: var(--fraco); font-variant-numeric: tabular-nums; }
+  .proximas .col { width: 100%; height: 46px; border-radius: 6px; background: var(--linha); display: flex; align-items: flex-end; overflow: hidden; }
+  .proximas .col i { display: block; width: 100%; background: linear-gradient(to top, #2f86d8, #9fd3ff); border-radius: 6px; }
+  .proximas .h b { font-weight: 500; color: var(--suave); min-height: 13px; font-size: 10px; }
+  .proximas .h.pico b { color: #9fd3ff; }
+  .legenda .barra { height: 6px; border-radius: 6px; margin-top: 8px;
+    background: linear-gradient(90deg, rgb(206 192 135 / .55), #6cd1eb 18%, #0091ca 36%, #005180 50%, #ffee00 62%, #ffaa00 74%, #ff4400 86%, #c10000 94%, #ff00ff); }
+  .legenda .rotulos { display: flex; justify-content: space-between; color: var(--fraco); font-size: 10.5px; margin-top: 5px; }
+  .aviso { position: fixed; z-index: 1300; left: 50%; top: calc(env(safe-area-inset-top) + 72px); transform: translate(-50%, -6px);
+    padding: 8px 13px; border-radius: 12px; font-size: 12.5px; opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; white-space: nowrap; }
+  .aviso.ver { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<div id="mapa"></div>
+<div class="mira"></div>
+
+<div class="chip cartao" id="chip" data-cor="calmo"><i class="bolinha"></i><span class="titulo" id="chip-titulo">Radar da região</span>
+  <span class="hora" id="chip-hora"></span><i class="vivo" id="vivo"></i></div>
+<button class="fab" id="info" aria-label="Detalhes"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
+
+<aside class="gaveta cartao" id="gaveta">
+  <div class="estado" id="estado" data-cor="calmo"><i class="bolinha"></i>
+    <div><div class="rot">radar agora</div><div class="titulo" id="titulo">Radar da região</div>
+      <div class="sub" id="sub">carregando…</div><div class="modelo" id="modelo"></div>
+      <div class="vivo-txt" id="vivo-txt">conectando</div></div></div>
+  <div class="sep"></div>
+  <div>
+    <div class="quadro"><div><div class="rot">quadro do radar</div><b id="hora-radar">--:--</b></div><span id="rotulo-radar"></span></div>
+    <div class="marcas" id="marcas"></div>
+    <div class="ext"><span id="ext-ini"></span><span id="ext-fim"></span></div>
+  </div>
+  <div><div class="rot">chance de chuva · próximas horas</div><div class="proximas" id="proximas"></div></div>
+  <div class="legenda"><div class="rot">intensidade</div><div class="barra"></div><div class="rotulos"><span>garoa</span><span>fraca</span><span>moderada</span><span>forte</span><span>intensa</span></div></div>
+</aside>
+
+<div class="pilha">
+  <button class="fab" id="mais" aria-label="Aproximar">+</button>
+  <button class="fab" id="menos" aria-label="Afastar">−</button>
+  <button class="fab" id="casa" aria-label="Casa"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg></button>
+  <span class="nivel" id="nivel"></span>
+</div>
+<div class="aviso cartao" id="aviso"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const CFG = /*CFG*/null;
+  const K = new URLSearchParams(location.search).get('k') || '';
+  const $ = id => document.getElementById(id), rad = g => g * Math.PI / 180;
+  const esri = s => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${s}/MapServer/tile/{z}/{y}/{x}`;
+  const R0 = CFG.raio, CASA = [CFG.lat, CFG.lon];
+  const mapa = L.map('mapa', { zoomControl: false, zoomSnap: 1, minZoom: CFG.zmin, maxZoom: CFG.zmax,
+    maxBounds: L.latLngBounds([CFG.lat - R0, CFG.lon - R0], [CFG.lat + R0, CFG.lon + R0]), maxBoundsViscosity: .9 }).setView(CASA, CFG.z);
+  L.tileLayer(esri('World_Dark_Gray_Base'), { attribution: 'Esri · RainViewer · Open-Meteo', maxZoom: 18, maxNativeZoom: 16 }).addTo(mapa);
+  mapa.createPane('chuva').style.zIndex = 350;
+  mapa.createPane('nomes').style.zIndex = 380;
+  mapa.createPane('marcas').style.zIndex = 420;
+  L.tileLayer(esri('World_Dark_Gray_Reference'), { maxZoom: 18, maxNativeZoom: 16, pane: 'nomes' }).addTo(mapa);
+
+  // Deslocamento em km (leste, norte) a partir de casa → coordenada
+  const ponto = (dx, dy) => [CFG.lat + dy / 111.32, CFG.lon + dx / (111.32 * Math.cos(rad(CFG.lat)))];
+  const rotulo = (pos, html, cls, anc = [0, 0]) => L.marker(pos, { pane: 'marcas', interactive: false, keyboard: false,
+    icon: L.divIcon({ className: '', html: `<div class="${cls}">${html}</div>`, iconSize: null, iconAnchor: anc }) });
+
+  // Anéis fixos (5, 10, 25, 50 km) com rótulo a sudeste e a casa
+  const D = Math.SQRT1_2;
+  [5, 10, 25, 50].forEach((km, i) => {
+    L.circle(CASA, { radius: km * 1000, pane: 'marcas', interactive: false, fill: false, weight: 1,
+      color: '#fff', opacity: i > 1 ? .26 : .2, dashArray: i > 1 ? '2 7' : null }).addTo(mapa);
+    rotulo(ponto(km * D, -km * D), `${km} km`, 'anel-txt', [-6, -4]).addTo(mapa);
+  });
+  L.marker(CASA, { pane: 'marcas', interactive: false, icon: L.divIcon({ className: '', html: '<div class="casa"></div>', iconSize: [26, 26] }) }).addTo(mapa);
+  rotulo(CASA, CFG.nome, 'casa-nome').addTo(mapa);
+
+  const alvo = L.layerGroup().addTo(mapa);
+  let R = null, C = {};
+  function desenharAlvo() {
+    alvo.clearLayers(); alvo.rot = null;
+    const p = R?.perto;
+    for (const c of (R?.celulas || []).slice(p ? 1 : 0)) {
+      const pos = ponto(c.dx, c.dy);
+      L.marker(pos, { pane: 'marcas', interactive: false, icon: L.divIcon({ className: '', html: `<div class="cel-ponto${c.forte ? ' forte' : ''}"></div>`, iconSize: [9, 9] }) }).addTo(alvo);
+      rotulo(pos, `${c.km} km`, 'cel-txt', [-7, 20]).addTo(alvo);
+    }
+    if (!p || p.km <= 3) return;
+    const fim = ponto(p.dx, p.dy);
+    L.polyline([CASA, fim], { pane: 'marcas', interactive: false, color: '#6cd1eb', weight: 1.6, dashArray: '5 6', opacity: .95 }).addTo(alvo);
+    L.marker(fim, { pane: 'marcas', interactive: false, icon: L.divIcon({ className: '', html: '<div class="alvo-ponto"></div>', iconSize: [12, 12] }) }).addTo(alvo);
+    alvo.rot = rotulo(fim, `chuva · ${p.km} km`, 'alvo-txt', [-12, 24]).addTo(alvo); alvo.fim = fim;
+    posicionarAlvo();
+  }
+  // Rótulo da chuva: no ponto se estiver à vista; senão onde a linha sai da área livre do mapa (entre os cartões).
+  function posicionarAlvo() {
+    if (!alvo.rot || !mapa.hasLayer(alvo.rot)) return;
+    const t0 = $('chip').getBoundingClientRect().bottom + 30, t1 = innerHeight - 40;
+    const g = $('gaveta'), dir = g.classList.contains('aberta') ? g.getBoundingClientRect().left : innerWidth - 64;
+    const dentro = q => q.x > 16 && q.x < dir - 140 && q.y > t0 && q.y < t1;
+    const a = mapa.latLngToContainerPoint(CASA), b = mapa.latLngToContainerPoint(alvo.fim);
+    if (dentro(b) || !dentro(a)) return alvo.rot.setLatLng(alvo.fim);
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; dentro(a.add(b.subtract(a).multiplyBy(m))) ? lo = m : hi = m; }
+    alvo.rot.setLatLng(mapa.containerPointToLatLng(a.add(b.subtract(a).multiplyBy(lo))));
+  }
+  mapa.on('moveend zoomend', posicionarAlvo);
+  addEventListener('resize', posicionarAlvo);
+
+  // Texto da situação (mesma lógica do monitor)
+  function situacao() {
+    const p = R?.perto, lugar = C.lugar || CFG.nome, horas = C.horas || [];
+    let cor = 'calmo', titulo, sub;
+    if (!R || !R.analisado) { titulo = C.chuvaAgora > 0 ? 'Chovendo agora' : 'Radar da região'; sub = 'últimas 2 horas'; cor = C.chuvaAgora > 0 ? 'chuva' : 'calmo'; }
+    else if (!p) { titulo = 'Sem chuva por perto'; sub = `nada no radar num raio de ${R.raio} km`; }
+    else if (p.km <= 3) { titulo = 'Chovendo aqui'; sub = `o radar mostra chuva${p.forte ? ' forte' : ''} sobre ${lugar}`; cor = p.forte ? 'forte' : 'chuva'; }
+    else { const t = { aproximando: 'se aproximando', afastando: 'se afastando', parada: 'quase parada', nova: 'surgiu agora' }[p.tendencia];
+      titulo = `Chuva a ${p.km} km`; sub = `a ${p.direcao}${t ? ' · ' + t : ''}`; cor = p.km > 40 ? 'longe' : p.forte ? 'forte' : 'chuva'; }
+    $('estado').dataset.cor = $('chip').dataset.cor = cor; $('titulo').textContent = $('chip-titulo').textContent = titulo; $('sub').textContent = sub;
+    const prox = horas.slice(1).find(h => h.chuva >= 50), pico = horas.reduce((a, h) => h.chuva > a.chuva ? h : a, { chuva: -1 });
+    $('modelo').textContent = prox ? `previsão: ${prox.chuva}% de chance às ${prox.hora.slice(0, 2)}h`
+      : pico.chuva >= 20 ? `previsão: pico de ${pico.chuva}% às ${pico.hora.slice(0, 2)}h` : 'previsão: sem chuva nas próximas horas';
+    $('proximas').innerHTML = horas.map(h =>
+      `<div class="h${h === pico && h.chuva >= 20 ? ' pico' : ''}"><b>${h.chuva >= 20 ? h.chuva + '%' : ''}</b><div class="col"><i style="height:${Math.max(3, h.chuva)}%"></i></div>${h.hora.slice(0, 2)}h</div>`).join('');
+  }
+
+  // Radar animado: uma camada por quadro, troca seca (750 ms; segura 4,2 s no mais recente)
+  const hhmm = t => new Date(t * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  let camadas = [], k = 0, relogio = 0, chaveQuadros = '';
+  function radar() {
+    const qs = R?.quadros || [], chave = qs.map(q => q.p).join();
+    if (!qs.length) { $('rotulo-radar').textContent = 'radar indisponível'; return; }
+    if (chave === chaveQuadros) return;
+    chaveQuadros = chave; clearTimeout(relogio);
+    camadas.forEach(c => mapa.removeLayer(c));
+    camadas = qs.map(q => L.tileLayer(`${R.host}${q.p}/256/{z}/{x}/{y}/2/1_1.png`,
+      { pane: 'chuva', opacity: 0, maxNativeZoom: 7, maxZoom: 18, className: 'radar' }).addTo(mapa));
+    $('marcas').innerHTML = qs.map(() => '<i></i>').join('');
+    $('ext-ini').textContent = hhmm(qs[0].t); $('ext-fim').textContent = hhmm(qs.at(-1).t);
+    k = qs.length - 1; passo();
+  }
+  const PASSO = 750, SEGURA = 4200;            // igual ao monitor; o quadro sai do relógio, então os dois andam juntos
+  function quadroAgora(n) {
+    const P = (n - 1) * PASSO + SEGURA, pos = Date.now() % P;
+    return pos < (n - 1) * PASSO ? [Math.floor(pos / PASSO), PASSO - pos % PASSO] : [n - 1, P - pos];
+  }
+  function passo() {
+    clearTimeout(relogio);
+    const qs = R?.quadros || []; if (!qs.length) return;
+    const [kk, falta] = quadroAgora(qs.length); k = kk;
+    camadas.forEach((c, i) => c.setOpacity(i === k ? .78 : 0));
+    const q = qs[k], ultimo = k === qs.length - 1, min = Math.max(0, Math.round((Date.now() - q.t * 1000) / 60000));
+    $('hora-radar').textContent = $('chip-hora').textContent = hhmm(q.t);
+    $('rotulo-radar').textContent = ultimo ? `mais recente · há ${min} min` : `há ${min} min`;
+    [...$('marcas').children].forEach((m, i) => m.className = i === k ? 'ativo' : i < k ? 'passou' : '');
+    relogio = setTimeout(passo, falta + 5);
+  }
+
+  // Conversa com o PC
+  const aviso = t => { const a = $('aviso'); a.textContent = t; a.classList.add('ver'); clearTimeout(aviso.r); aviso.r = setTimeout(() => a.classList.remove('ver'), 1800); };
+  const vivo = (on, txt) => { $('vivo').className = 'vivo ' + (on ? 'on' : 'erro'); $('vivo-txt').innerHTML = `<i class="vivo ${on ? 'on' : 'erro'}"></i>${txt}`; };
+  const api = (rota, corpo) => fetch(rota, { method: corpo ? 'POST' : 'GET', cache: 'no-store',
+    headers: { 'X-Chave': K, 'Content-Type': 'application/json' }, body: corpo && JSON.stringify(corpo) })
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  let ultimo = 0, pendente = 0, remoto = false;
+  const nivel = () => { $('nivel').textContent = `z${Math.round(mapa.getZoom())}`; };
+  function enviar() {
+    nivel(); if (remoto) return;
+    const c = mapa.getCenter();
+    api('/mapa', { z: Math.round(mapa.getZoom()), lat: c.lat, lon: c.lng })
+      .then(() => vivo(true, 'espelhado no monitor')).catch(() => vivo(false, 'PC desbloqueado'));
+  }
+  function agendar() {
+    clearTimeout(pendente);
+    const falta = 250 - (Date.now() - ultimo);
+    if (falta <= 0) { ultimo = Date.now(); enviar(); } else pendente = setTimeout(() => { ultimo = Date.now(); enviar(); }, falta);
+  }
+  mapa.on('move zoom', agendar);
+  mapa.on('moveend zoomend', () => { clearTimeout(pendente); ultimo = Date.now(); enviar(); });
+  $('mais').onclick = () => mapa.zoomIn();
+  $('menos').onclick = () => mapa.zoomOut();
+  $('casa').onclick = () => { mapa.flyTo(CASA, CFG.z, { duration: .6 }); aviso(`voltando para ${CFG.nome}`); };
+  // Gaveta: abre e fecha pelo botão (lembra a escolha neste celular); toque no mapa também fecha.
+  const gaveta = $('gaveta'), info = $('info');
+  function abrir(sim) {
+    gaveta.classList.toggle('aberta', sim); info.classList.toggle('aberto', sim);
+    try { localStorage.setItem('gaveta', sim ? '1' : '0'); } catch {}
+    setTimeout(posicionarAlvo, 340);
+  }
+  info.onclick = () => abrir(!gaveta.classList.contains('aberta'));
+  mapa.on('click', () => gaveta.classList.contains('aberta') && abrir(false));
+  try { if (localStorage.getItem('gaveta') === '1' || location.hash === '#detalhes') abrir(true); } catch {}
+
+  function atualizar(primeira) {
+    return api('/estado').then(e => {
+      vivo(true, 'espelhado no monitor');
+      if (primeira && e.mapa) { remoto = true; mapa.setView([e.mapa.lat, e.mapa.lon], e.mapa.z, { animate: false }); remoto = false; }
+      const marca = JSON.stringify([e.radar, e.clima]);
+      if (marca !== atualizar.vista) { atualizar.vista = marca; R = e.radar; C = e.clima || {}; situacao(); desenharAlvo(); radar(); }
+      nivel();
+    }).catch(() => { vivo(false, 'PC desbloqueado'); if (primeira) $('sub').textContent = 'o radar só aparece com o PC bloqueado'; });
+  }
+  atualizar(true);
+  setInterval(() => atualizar(false), 20000);
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && atualizar(false));
+</script>
+</body>
+</html>

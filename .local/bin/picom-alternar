@@ -1,0 +1,10 @@
+#!/bin/sh
+# Liga/desliga o compositor (Super+G no dwm). Sem picom: +12% a 29% de desempenho em 3D/vídeo
+# (medido em 10/11/2026), mas sem transparência/desfoque. O boot sempre começa com picom ligado.
+if pgrep -x picom >/dev/null; then
+  pkill -x picom
+  notify-send -t 1500 "picom off"
+else
+  if [ -e /dev/dri/renderD128 ]; then picom -b; else picom -b --config "$HOME/.config/picom/picom-vm.conf"; fi
+  notify-send -t 1500 "picom on"
+fi

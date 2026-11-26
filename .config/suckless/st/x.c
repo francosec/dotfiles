@@ -8,6 +8,11 @@
 #include <time.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <dirent.h>
+#include <sys/inotify.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/cursorfont.h>
@@ -324,6 +329,82 @@ numlock(const Arg *dummy)
 	win.mode ^= MODE_NUMLOCK;
 }
 
+/* Transparência sincronizada: o valor fica em ~/.cache/st-alpha; quem muda avisa os outros st com SIGUSR1. */
+
+static const char *
+alphaarquivo(void)
+{
+	static char caminho[PATH_MAX];
+	const char *home = getenv("HOME");
+	if (!caminho[0])
+		snprintf(caminho, sizeof(caminho), "%s/.cache/st-alpha", home ? home : "/tmp");
+	return caminho;
+}
+
+static int
+alphaler(void)
+{
+	float v;
+	FILE *f = fopen(alphaarquivo(), "r");
+	if (!f)
+		return 0;
+	if (fscanf(f, "%f", &v) == 1 && v >= 0 && v <= 1) {
+		alpha = v;
+		fclose(f);
+		return 1;
+	}
+	fclose(f);
+	return 0;
+}
+
+static void
+alphasalvar(void)
+{
+	char tmp[PATH_MAX + 16];
+	FILE *f;
+	snprintf(tmp, sizeof(tmp), "%s.%d", alphaarquivo(), (int)getpid());
+	if (!(f = fopen(tmp, "w")))
+		return;
+	fprintf(f, "%.2f\n", alpha);
+	fclose(f);
+	rename(tmp, alphaarquivo());
+}
+
+/* Os outros st percebem a mudança pelo inotify em ~/.cache (sem sinais: sinal interrompia read/write do st e ele fechava). */
+static int
+alphavigiar(void)
+{
+	char pasta[PATH_MAX];
+	const char *home = getenv("HOME");
+	int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+	if (fd < 0)
+		return -1;
+	snprintf(pasta, sizeof(pasta), "%s/.cache", home ? home : "/tmp");
+	if (inotify_add_watch(fd, pasta, IN_CLOSE_WRITE | IN_MOVED_TO) < 0) {
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+static int
+alphamudou(int fd)
+{
+	char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+	ssize_t n;
+	int achou = 0;
+	while ((n = read(fd, buf, sizeof(buf))) > 0) {
+		for (char *q = buf; q < buf + n; ) {
+			struct inotify_event *ev = (struct inotify_event *)q;
+			if (ev->len && !strcmp(ev->name, "st-alpha"))
+				achou = 1;
+			q += sizeof(struct inotify_event) + ev->len;
+		}
+	}
+	return achou;
+}
+
+
 void
 changealpha(const Arg *arg)
 {
@@ -333,9 +414,11 @@ changealpha(const Arg *arg)
         alpha = 0;
     if(alpha > 1)
         alpha = 1;
+    alpha = roundf(alpha * 100) / 100;
 
     xloadcols();
     redraw();
+    alphasalvar();
 }
 
 void
@@ -2405,11 +2488,14 @@ run(void)
 
 	ttyfd = ttynew(opt_line, shell, opt_io, opt_cmd);
 	cresize(w, h);
+	int alphafd = alphavigiar();     /* transparência compartilhada: outro st gravou ~/.cache/st-alpha */
 
 	for (timeout = -1, drawing = 0, lastblink = (struct timespec){0};;) {
 		FD_ZERO(&rfd);
 		FD_SET(ttyfd, &rfd);
 		FD_SET(xfd, &rfd);
+		if (alphafd >= 0)
+			FD_SET(alphafd, &rfd);
 
 		if (XPending(xw.dpy))
 			timeout = 0;  /* existing events might not set xfd */
@@ -2418,13 +2504,20 @@ run(void)
 		seltv.tv_nsec = 1E6 * (timeout - 1E3 * seltv.tv_sec);
 		tv = timeout >= 0 ? &seltv : NULL;
 
-		if (pselect(MAX(xfd, ttyfd)+1, &rfd, NULL, NULL, tv, NULL) < 0) {
+		if (pselect(MAX(MAX(xfd, ttyfd), alphafd)+1, &rfd, NULL, NULL, tv, NULL) < 0) {
 			if (errno == EINTR)
 				continue;
 			die("select failed: %s\n", strerror(errno));
 		}
 		clock_gettime(CLOCK_MONOTONIC, &now);
 
+		if (alphafd >= 0 && FD_ISSET(alphafd, &rfd) && alphamudou(alphafd)) {
+			float antes = alpha;
+			if (alphaler() && alpha != antes) {
+				xloadcols();
+				redraw();
+			}
+		}
 		if (FD_ISSET(ttyfd, &rfd))
 			ttyread();
 
@@ -2622,6 +2715,8 @@ run:
 		die("Can't open display\n");
 
 	config_init();
+	alphaler();                      /* transparência compartilhada entre os st */
+	signal(SIGUSR1, SIG_IGN);        /* st antigo mandava SIGUSR1; ignorar */
 	cols = MAX(cols, 1);
 	rows = MAX(rows, 1);
 	tnew(cols, rows);

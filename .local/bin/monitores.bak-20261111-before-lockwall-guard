@@ -1,0 +1,83 @@
+#!/bin/sh
+# Telas lado a lado: notebook (eDP/LVDS) à esquerda, o maior monitor externo no centro como principal,
+# os demais à direita (ex.: tela 3 no adaptador USB, que aparece como DVI-I-x-x). Centraliza na vertical.
+# Em VM: 1920x1080 na primeira saída. Rode de novo depois de plugar ou tirar um monitor.
+
+if systemd-detect-virt -q; then
+  xrandr --output "$(xrandr | awk '/ connected/{print $1; exit}')" --mode 1920x1080
+  exit
+fi
+
+# Adaptador USB (evdi) só ganha saídas depois de ligado à GPU principal.
+xrandr --listproviders | awk -F'[: ]+' '/^Provider [1-9]/{print $2}' | while read -r p; do
+  xrandr --setprovideroutputsource "$p" 0 2>/dev/null
+done
+sleep 1
+
+# Liga cada tela no modo que o X escolhe; o preferido (+) pode não ser o que roda (a tela 2 anuncia 4K e fica em 1440p).
+on=""
+for saida in $(xrandr | awk '/ connected/{print $1}'); do on="$on --output $saida --auto"; done
+# shellcheck disable=SC2086
+[ -n "$on" ] && xrandr $on
+
+# "saida largura altura" de cada tela conectada: modo ativo (*), senão o preferido (+), senão o primeiro listado.
+telas=$(xrandr --query | awk '
+  function fecha() { if (nome != "") print nome, (cur != "" ? cur : pref != "" ? pref : prim); nome = "" }
+  /^[^ ]+ connected/ { fecha(); nome = $1; cur = pref = prim = ""; next }
+  /^[^ ]/            { fecha(); next }
+  nome != "" && /^ +[0-9]+x[0-9]+/ {
+    split($1, r, "x"); m = r[1] " " r[2]
+    if (prim == "") prim = m
+    if (pref == "" && $0 ~ /\+/) pref = m
+    if (cur == "" && $0 ~ /\*/) cur = m
+  }
+  END { fecha() }')
+
+interna=$(echo "$telas" | awk 'NF == 3 && $1 ~ /^(eDP|LVDS)/' | head -1)
+externas=$(echo "$telas" | awk 'NF == 3 && $1 !~ /^(eDP|LVDS)/')
+principal=$(echo "$externas" | awk 'NF == 3 {print $2 * $3, $0}' | sort -rn | head -1 | cut -d' ' -f2-)
+resto=$(echo "$externas" | grep -vxF "$principal")
+if [ -z "$principal" ]; then principal=$interna; interna=; fi
+
+ordem=$(printf '%s\n%s\n%s\n' "$interna" "$principal" "$resto" | awk 'NF == 3')
+hmax=$(echo "$ordem" | awk '$3 > h {h = $3} END {print h + 0}')
+
+args="" x=0
+for saida in $(xrandr | awk '/ disconnected/{print $1}'); do args="$args --output $saida --off"; done
+while read -r nome w h; do
+  [ -n "$nome" ] || continue
+  args="$args --output $nome --mode ${w}x${h} --pos ${x}x$(( (hmax - h) / 2 ))"
+  [ "$nome $w $h" = "$principal" ] && args="$args --primary"
+  x=$((x + w))
+done <<EOF
+$ordem
+EOF
+
+# shellcheck disable=SC2086
+[ -n "$args" ] && xrandr $args
+
+# tela 2 em 2560x1440 pelo HDMI do notebook: o EDID só anuncia 60 Hz, mas aguenta 77 Hz com
+# blanking reduzido. ~300 MHz de pixel clock é o limite do HDMI 1.4 da GPU Intel (o i915
+# recusa acima disso). Testado em 09/11/2026; se a imagem falhar, use 2560x1440_74:
+# 298.11 2560 2608 2640 2720 1440 1443 1448 1481.
+set -- $principal
+if [ "${1#HDMI}" != "$1" ] && [ "$2x$3" = "2560x1440" ]; then
+  # 75 Hz (291 MHz): a 77 Hz (298,8 MHz, no limite de 300 do HDMI 1.4) dava pontinhos vermelhos em fundo escuro (10/11/2026).
+  modo=2560x1440_75r
+  xrandr | grep -q "^ *$modo " || xrandr --newmode "$modo" 291.06 2560 2568 2600 2640 1440 1443 1448 1470 +hsync -vsync 2>/dev/null
+  xrandr --addmode "$1" "$modo" 2>/dev/null
+  xrandr --output "$1" --mode "$modo" || xrandr --output "$1" --mode 2560x1440
+fi
+
+# tela 3 1920x1080 no adaptador USB (DVI-I-x-x): anuncia até 75 Hz, aceita 77 Hz com o
+# mesmo timing do modo de 75 (179 MHz). Testado em 09/11/2026. Cada Hz a mais pesa no SMIUSBD.
+echo "$resto" | while read -r nome w h; do
+  [ "${nome#DVI-I}" != "$nome" ] && [ "${w}x$h" = "1920x1080" ] || continue
+  # 75 Hz nativo do EDID (74,97); igual à tela 2 desde 10/11/2026. O 77 customizado era 1920x1080_77 179.22 1920 1968 2000 2080 1080 1083 1088 1119.
+  xrandr --output "$nome" --mode 1920x1080 --rate 75 || xrandr --output "$nome" --mode 1920x1080
+done
+
+# Disposição mudou (boot, HDMI 1/2 da Alexa): o feh não redimensiona o fundo sozinho e o
+# wallpaper ficava recortado no tamanho antigo. Reaplica o fundo e regenera a tela de bloqueio.
+command -v fundo >/dev/null && fundo
+command -v lockwall >/dev/null && (lockwall >/dev/null 2>&1 &)

@@ -1,16 +1,13 @@
-if ping -c 1 "9.9.9.9" > /dev/null; then
- echo -e "󰖩 "
- else
- echo -e "󱛅 "
+#!/bin/sh
+# -W 2: sem internet, desiste em 2 s em vez de ficar esperando.
+if ping -c 1 -W 2 "9.9.9.9" > /dev/null 2>&1; then
+ echo "󰖩 "
+else
+ echo "󱛅 "
 fi
 
 case $BLOCK_BUTTON in
-    1) setsid -f st -n spterm -g 120x34 -e sh -c "nmtui; exec zsh" ;;
-    1) st -e nmtui ;;
-    3) notify-send " Internet module" "\- Click to connect
-
-󰖩  internet connection
-󱛅  no internet connection
-" ;;
+    1) setsid -f barpop net >/dev/null 2>&1 ;;
+    3) setsid -f barpop net >/dev/null 2>&1 ;;
     6) st -e nvim "$0" ;;
 esac

@@ -1,6 +1,4 @@
-if ! pgrep -x xautolock >/dev/null; then
-    xautolock -detectsleep -time 10 \
-        -locker "bash -c 'xset dpms force off; betterlockscreen -l; sleep 2; xrandr --output DP-1 --off; sleep 2; xrandr --output DP-1 --mode 1920x1080 --rate 144 --primary --output DP-2 --mode 1920x1080 --rate 144 --left-of DP-1'" \
-        -notify 15 \
-        -notifier "notify-send 'LOCK' 'Screen will lock in 15 seconds. Press any key to cancel.'" &
-fi
+# Bloqueio só manual desde 23/11/2026 (menu do dwm, Alexa, painel): sem xautolock.
+# Aqui fica apenas a regra de a tela não apagar sozinha.
+# Para voltar ao bloqueio após 10 min parado: alwayslock.bak-20261123-manual.
+xset s off; xset dpms 0 0 0
