@@ -6,9 +6,6 @@
 
 ## /home/arthos/dotfiles
 
-<sub>˚ ₊‧ loud guitars, quiet rooms ‧₊ ˚</sub><br>
-<sub>▶ ılıılıılıılı &nbsp; on repeat while building this: fleshwater · title fight &nbsp; ılıılıılıılı</sub>
-
 </div>
 
 <div align=center>
@@ -22,7 +19,7 @@
 <img align="right" src="img/build-pb.png" alt="Rice Preview" width="363px"/>
 
 ```Go
-side a ── 01. setup / dwm             ♡ ⋆˚ ༘
+†††                 setup / dwm                 †††
 ---------------------------------------------------
 ╭─ distro          -> arch linux
 ├─ editor          -> neovim
@@ -58,7 +55,7 @@ side a ── 01. setup / dwm             ♡ ⋆˚ ༘
 <div align=center>
 
 ```ocaml
-side a ── 02. barpop 窓
+††† barpop 窓
 ```
 </div>
 
@@ -101,14 +98,14 @@ Click a block on the bar and it opens a popup. A single script, `~/.local/bin/ba
 </details>
 
 <p align="center">
-    <img src="img/barpop-pb.png" width="800px" alt="barpop popups"/>
+    <img src="img/barpop-galeria.png" width="800px" alt="barpop popups"/>
 </p>
 <br>
 
 <div align=center>
 
 ```ocaml
-side b ── 03. installation 魅
+††† installation 魅
 ```
 </div>
 
@@ -165,7 +162,7 @@ bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
 <div align=center>
   
 ```ocaml
-side b ── 04. suckless build お
+††† suckless build お
 ```
 <br>
 </div>
@@ -546,7 +543,7 @@ side b ── 04. suckless build お
 </details>
 
 <details>
-<summary><b>05. keybinds 麗</b></summary><br>
+<summary><b>keybinds 麗</b></summary><br>
 
 **Windows and layouts**
 
@@ -630,6 +627,4 @@ side b ── 04. suckless build お
 
 </details>
 
-<div align="center"><sub>end of side b ⋆˚ ༘ ♡ &nbsp; rewind and play again</sub></div>
-
-<img src="img/footer-onda.svg" width="100%" title="Footer">
+<img src="img/cruzes.svg" width="100%" title="Footer">
