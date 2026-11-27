@@ -57,7 +57,7 @@
 </div>
 
 <p align="center">
-    <img src="img/demo-hypr-gouge.gif" width="800px" alt="Hyprland build demo with cava on three monitors"/>
+    <img src="img/demo-hypr-gouge.gif" width="800px" alt="Hyprland build demo"/>
 </p>
 <br>
 
@@ -79,7 +79,7 @@ The config is a single Lua file, `.config/hypr/hyprland.lua`, which Hyprland 0.5
 
 - Each monitor has its own workspaces 1–5. `Super + 1–5` switches on the monitor under focus, and Waybar shows the same 1–5 on every screen.
 - The layouts keep the dwm keys: `Super + T` tile, `Super + U` centered master, `Super + F` / `O` dwindle, `Super + Space` toggles the last one.
-- Cava runs behind the windows on every monitor, as a kitty panel on the background layer. `fundo-vigia` listens to Hyprland's event socket and redraws cava and the wallpaper when a monitor is plugged or unplugged.
+- Cava runs behind the windows on the main monitor (LG), as a kitty panel on the background layer. `fundo-vigia` listens to Hyprland's event socket and redraws cava and the wallpaper when a monitor is plugged or unplugged.
 - If the main monitor goes to another computer, `fundo-vigia` moves the right monitor next to the laptop so the cursor can still cross.
 - Scripts written for X (`monitores`, `fundo`, `tela-desliga`) check for Hyprland and hand over to their versions in `.local/bin/wayland/`.
 - The lock screen (`Super + F11`) uses `ext-session-lock` through gtk-session-lock. Each monitor gets its own WebKit page, and the password goes through PAM.

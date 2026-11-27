@@ -1,11 +1,10 @@
 #!/bin/sh
-# Cava em tela cheia atrás das janelas (camada de fundo do kitty), em cada tela conectada.
-# Rodar de novo refaz tudo (o fundo-vigia chama quando uma tela entra/sai).
+# Full-screen cava behind the windows (kitty background layer), only on the LG monitor.
+OUTPUT=HDMI-A-1
 for p in $(pgrep -x kitty); do
   tr '\0' ' ' </proc/$p/cmdline 2>/dev/null | grep -q -- '--class cava-fundo' && kill "$p"
 done
-for saida in $(hyprctl -j monitors | python3 -c 'import json,sys; print(" ".join(m["name"] for m in json.load(sys.stdin)))'); do
-  setsid -f kitty +kitten panel --edge=background --output-name="$saida" \
-    -o background_opacity=0 -o font_size=10 -o allow_remote_control=no -o listen_on=none --class cava-fundo \
-    cava -p "$HOME/.config/cava/config-fundo" >/dev/null 2>&1
-done
+hyprctl -j monitors | grep -q "\"name\": \"$OUTPUT\"" || exit 0
+setsid -f kitty +kitten panel --edge=background --output-name="$OUTPUT" \
+  -o background_opacity=0 -o font_size=10 -o allow_remote_control=no -o listen_on=none --class cava-fundo \
+  cava -p "$HOME/.config/cava/config-fundo" >/dev/null 2>&1
