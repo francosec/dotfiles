@@ -10,16 +10,16 @@
 
 <div align=center>
 
-![](https://img.shields.io/github/stars/francosec/dotfiles?color=FFFFFF&logo=apachespark&logoColor=D9E0EE&style=for-the-badge&labelColor=191c27)
-![](https://img.shields.io/github/last-commit/francosec/dotfiles?&logo=github&style=for-the-badge&color=FFFFFF&logoColor=D9E0EE&labelColor=191c27)
-![](https://img.shields.io/github/repo-size/francosec/dotfiles?color=FFFFFF&logo=hackthebox&logoColor=D9E0EE&style=for-the-badge&labelColor=191c27)
+![](https://img.shields.io/github/stars/francosec/dotfiles?color=edc1dc&logo=apachespark&logoColor=edc1dc&style=for-the-badge&labelColor=0c0708)
+![](https://img.shields.io/github/last-commit/francosec/dotfiles?&logo=github&style=for-the-badge&color=edc1dc&logoColor=edc1dc&labelColor=0c0708)
+![](https://img.shields.io/github/repo-size/francosec/dotfiles?color=edc1dc&logo=hackthebox&logoColor=edc1dc&style=for-the-badge&labelColor=0c0708)
 
 </div>
 
 <img align="right" src="img/build.png" alt="Rice Preview" width="363px"/>
 
 ```Go
-❄️                  Setup / DWM                   ❄️
+☾                 † Setup / DWM †                 ☽
 ---------------------------------------------------
 ╭─ Distro          -> Arch Linux
 ├─ Editor          -> NeoVim
@@ -55,7 +55,7 @@
 <div align=center>
 
 ```ocaml
-❄️ barpop 窓
+☾ barpop 窓 ☽
 ```
 </div>
 
@@ -105,7 +105,7 @@ Click a block on the bar and it opens a popup. A single script, `~/.local/bin/ba
 <div align=center>
 
 ```ocaml
-❄️ Installation 魅
+☾ Installation 魅 ☽
 ```
 </div>
 
@@ -162,7 +162,7 @@ bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
 <div align=center>
   
 ```ocaml
-❄️ Suckless Build お
+☾ Suckless Build お ☽
 ```
 <br>
 </div>
@@ -627,4 +627,4 @@ bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
 
 </details>
 
-<img src="https://user-images.githubusercontent.com/123886904/218294072-d474a330-7464-430a-b369-91f79373dbca.svg" width="100%" title="Footer">
+<img src="img/footer.svg" width="100%" title="Footer">

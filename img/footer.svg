@@ -1,0 +1,22 @@
+<svg width="1000" height="90" viewBox="0 0 1000 90" xmlns="http://www.w3.org/2000/svg">
+  <!-- Rodapé do README: ondas escuras (darkwave) nas cores do st (#0c0708 / #edc1dc / #a5879a). -->
+  <defs>
+    <linearGradient id="fade" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#edc1dc" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#edc1dc" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#edc1dc" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fade2" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#a5879a" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#a5879a" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#a5879a" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <path d="M0 45 C 62.5 20, 125 20, 187.5 45 S 312.5 70, 375 45 S 500 20, 562.5 45 S 687.5 70, 750 45 S 875 20, 1000 45"
+        fill="none" stroke="url(#fade)" stroke-width="1.6"/>
+  <path d="M0 52 C 83 30, 167 30, 250 52 S 417 74, 500 52 S 667 30, 750 52 S 917 74, 1000 52"
+        fill="none" stroke="url(#fade2)" stroke-width="1.1"/>
+  <path d="M0 38 C 100 58, 200 58, 300 38 S 500 18, 600 38 S 800 58, 900 38 S 1000 28, 1000 30"
+        fill="none" stroke="url(#fade2)" stroke-width="0.8" stroke-opacity="0.7"/>
+  <text x="500" y="49" text-anchor="middle" font-family="serif" font-size="18" fill="#edc1dc">☾ † ☽</text>
+</svg>
