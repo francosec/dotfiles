@@ -46,15 +46,15 @@
 
 </td>
 <td>
-<img src="img/shot-build.png" alt="dwm build" width="420px"/><br>
-<img src="img/shot-nvim.png" alt="nvim and barpop" width="420px"/>
+<img src="img/shot-arte.png" alt="nvim dashboard and dwm build" width="420px"/><br>
+<img src="img/shot-codigo.png" alt="nvim and barpop" width="420px"/>
 </td>
 </tr>
 </table>
 </div>
 
 <p align="center">
-    <img src="img/demo-final.gif" width="800px" alt="DWM build demo"/>
+    <img src="img/demo-arte.gif" width="800px" alt="DWM build demo"/>
 </p>
 <br>
 
