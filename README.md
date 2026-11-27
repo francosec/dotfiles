@@ -45,13 +45,16 @@
 ```
 
 </td>
-<td><img src="img/build-pb.png" alt="Rice Preview" width="380px"/></td>
+<td>
+<img src="img/shot-build.png" alt="dwm build" width="420px"/><br>
+<img src="img/shot-nvim.png" alt="nvim and barpop" width="420px"/>
+</td>
 </tr>
 </table>
 </div>
 
 <p align="center">
-    <img src="img/demo-pb.gif" width="800px" alt="DWM build demo"/>
+    <img src="img/demo-final.gif" width="800px" alt="DWM build demo"/>
 </p>
 <br>
 
@@ -635,5 +638,7 @@ bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
 | `Control` + `Shift` + `A` / `S`           | More / less transparent (all `st` and barpop follow). |
 
 </details>
+
+<div align="center"><sub>based on pietrosec's dwm build</sub></div>
 
 <img src="img/cruzes.svg" width="100%" title="Footer">

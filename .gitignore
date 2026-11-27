@@ -1,0 +1,6 @@
+
+# Binários compilados e caches
+__pycache__/
+*.pyc
+*.o
+.config/suckless/slock/slock
