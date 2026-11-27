@@ -6,39 +6,42 @@
 
 ## /home/arthos/dotfiles
 
+<sub>˚ ₊‧ loud guitars, quiet rooms ‧₊ ˚</sub><br>
+<sub>▶ ılıılıılıılı &nbsp; on repeat while building this: fleshwater · title fight &nbsp; ılıılıılıılı</sub>
+
 </div>
 
 <div align=center>
 
-![](https://img.shields.io/github/stars/francosec/dotfiles?color=edc1dc&logo=apachespark&logoColor=edc1dc&style=for-the-badge&labelColor=0c0708)
-![](https://img.shields.io/github/last-commit/francosec/dotfiles?&logo=github&style=for-the-badge&color=edc1dc&logoColor=edc1dc&labelColor=0c0708)
-![](https://img.shields.io/github/repo-size/francosec/dotfiles?color=edc1dc&logo=hackthebox&logoColor=edc1dc&style=for-the-badge&labelColor=0c0708)
+![](https://img.shields.io/github/stars/francosec/dotfiles?color=e1e1e1&logo=apachespark&logoColor=e1e1e1&style=for-the-badge&labelColor=060606)
+![](https://img.shields.io/github/last-commit/francosec/dotfiles?&logo=github&style=for-the-badge&color=e1e1e1&logoColor=e1e1e1&labelColor=060606)
+![](https://img.shields.io/github/repo-size/francosec/dotfiles?color=e1e1e1&logo=hackthebox&logoColor=e1e1e1&style=for-the-badge&labelColor=060606)
 
 </div>
 
 <img align="right" src="img/build.png" alt="Rice Preview" width="363px"/>
 
 ```Go
-☾                 † Setup / DWM †                 ☽
+side a ── 01. setup / dwm             ♡ ⋆˚ ༘
 ---------------------------------------------------
-╭─ Distro          -> Arch Linux
-├─ Editor          -> NeoVim
-├─ Browser         -> Chromium / Brave
-├─ Shell           -> zsh
-╰─ System Monitor  -> barpop
+╭─ distro          -> arch linux
+├─ editor          -> neovim
+├─ browser         -> chromium / brave
+├─ shell           -> zsh
+╰─ system monitor  -> barpop
 
-╭─ Music Player    -> cmus / Spotify
-├─ Compositor      -> picom (glass + blur)
-├─ Notifications   -> dunst
-├─ Media Player    -> mpv
-╰─ File Manager    -> ranger
+╭─ music           -> cmus / spotify
+├─ compositor      -> picom (glass + blur)
+├─ notifications   -> dunst
+├─ media player    -> mpv
+╰─ file manager    -> ranger
 
-╭─ WM              -> dwm
-├─ Bar             -> dwmblocks-async
-├─ Terminal        -> st
-├─ App Launcher    -> dmenu
-├─ Theme           -> pywal
-╰─ Font            -> JetBrainsMono NF
+╭─ wm              -> dwm
+├─ bar             -> dwmblocks-async
+├─ terminal        -> st
+├─ app launcher    -> dmenu
+├─ theme           -> pywal (black & white toji)
+╰─ font            -> jetbrainsmono nf
 ```
 
 <p align="center">
@@ -46,16 +49,16 @@
 </p>
 <br>
 
-  **Warning**
+  **warning**
 
-  This is my personal Arch Linux setup, running on three monitors (notebook, tela 2 1440p and a tela 3 on a USB adapter). Use it as inspiration: there is no guarantee it will work as-is on your machine.
+  this is my personal arch linux setup, running on three monitors. use it as inspiration: there is no guarantee it will work as-is on your machine.
 
 <br>
 
 <div align=center>
 
 ```ocaml
-☾ barpop 窓 ☽
+side a ── 02. barpop 窓
 ```
 </div>
 
@@ -66,7 +69,7 @@
 Click a block on the bar and it opens a popup. A single script, `~/.local/bin/barpop` (Python + GTK 3), draws all of them. The data comes from `/proc`, `/sys` and tools like `wpctl`, `iw` and `df`; btop and htop are not needed.
 
 <details>
-<summary><b>What each popup shows 火</b></summary>
+<summary><b>what each popup shows 火</b></summary>
 <br>
 
 | Block | Popup |
@@ -85,7 +88,7 @@ Click a block on the bar and it opens a popup. A single script, `~/.local/bin/ba
 </details>
 
 <details>
-<summary><b>How it works 水</b></summary>
+<summary><b>how it works 水</b></summary>
 <br>
 
 - It opens under the block you clicked. The mouse position is read before GTK loads, so moving the mouse right after the click doesn't throw it off.
@@ -105,12 +108,12 @@ Click a block on the bar and it opens a popup. A single script, `~/.local/bin/ba
 <div align=center>
 
 ```ocaml
-☾ Installation 魅 ☽
+side b ── 03. installation 魅
 ```
 </div>
 
 <details>
-<summary><b>Manual</b></summary>
+<summary><b>manual</b></summary>
 <br>
 
   Assuming your **AUR Helper** is [yay](https://github.com/Jguer/yay).
@@ -128,7 +131,7 @@ git clone https://github.com/francosec/dotfiles.git
 </details>
 
 <details>
-<summary><b>Automatic</b></summary>
+<summary><b>automatic</b></summary>
 <br>
 
   Install [git](https://github.com/git/git), clone this repo and run the script
@@ -144,7 +147,7 @@ chmod +x install.sh
 </details>
 
 <details>
-<summary><b>Fresh Arch with LUKS</b></summary>
+<summary><b>fresh arch with luks</b></summary>
 <br>
 
   `instalar-arch-luks.sh` installs Arch with two LUKS2 volumes (`/boot`, opened by GRUB, and `/`, opened by the initramfs), then runs this build at the end. Run it from the Arch live ISO.
@@ -162,7 +165,7 @@ bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
 <div align=center>
   
 ```ocaml
-☾ Suckless Build お ☽
+side b ── 04. suckless build お
 ```
 <br>
 </div>
@@ -543,7 +546,7 @@ bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
 </details>
 
 <details>
-<summary><b>Keybinds 麗</b></summary><br>
+<summary><b>05. keybinds 麗</b></summary><br>
 
 **Windows and layouts**
 
@@ -626,5 +629,7 @@ bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
 | `Control` + `Shift` + `A` / `S`           | More / less transparent (all `st` and barpop follow). |
 
 </details>
+
+<div align="center"><sub>end of side b ⋆˚ ༘ ♡ &nbsp; rewind and play again</sub></div>
 
 <img src="img/footer.svg" width="100%" title="Footer">
