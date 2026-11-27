@@ -16,30 +16,39 @@
 
 </div>
 
-<img align="right" src="img/build-pb.png" alt="Rice Preview" width="363px"/>
+<div align="center">
+<table>
+<tr>
+<td>
 
 ```Go
-†††                 setup / dwm                 †††
----------------------------------------------------
-╭─ distro          -> arch linux
-├─ editor          -> neovim
-├─ browser         -> chromium / brave
-├─ shell           -> zsh
-╰─ system monitor  -> barpop
+†††       setup / dwm       †††
+-------------------------------
+╭─ distro      -> arch linux
+├─ editor      -> neovim
+├─ browser     -> chromium
+├─ shell       -> zsh
+╰─ monitor     -> barpop
 
-╭─ music           -> cmus / spotify
-├─ compositor      -> picom (glass + blur)
-├─ notifications   -> dunst
-├─ media player    -> mpv
-╰─ file manager    -> ranger
+╭─ music       -> cmus, spotify
+├─ compositor  -> picom + blur
+├─ notify      -> dunst
+├─ media       -> mpv
+╰─ files       -> ranger
 
-╭─ wm              -> dwm
-├─ bar             -> dwmblocks-async
-├─ terminal        -> st
-├─ app launcher    -> dmenu
-├─ theme           -> pywal (black & white toji)
-╰─ font            -> jetbrainsmono nf
+╭─ wm          -> dwm
+├─ bar         -> dwmblocks
+├─ terminal    -> st
+├─ launcher    -> dmenu
+├─ theme       -> pywal, b&w
+╰─ font        -> jetbrainsmono
 ```
+
+</td>
+<td><img src="img/build-pb.png" alt="Rice Preview" width="380px"/></td>
+</tr>
+</table>
+</div>
 
 <p align="center">
     <img src="img/demo-pb.gif" width="800px" alt="DWM build demo"/>
