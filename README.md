@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="img/toji.gif" width="420">
+    <img src="img/toji-pb.gif" width="420">
 </div><br>
 
 <div align="center">
@@ -19,7 +19,7 @@
 
 </div>
 
-<img align="right" src="img/build.png" alt="Rice Preview" width="363px"/>
+<img align="right" src="img/build-pb.png" alt="Rice Preview" width="363px"/>
 
 ```Go
 side a ── 01. setup / dwm             ♡ ⋆˚ ༘
@@ -45,7 +45,7 @@ side a ── 01. setup / dwm             ♡ ⋆˚ ༘
 ```
 
 <p align="center">
-    <img src="img/demo.gif" width="800px" alt="DWM build demo"/>
+    <img src="img/demo-pb.gif" width="800px" alt="DWM build demo"/>
 </p>
 <br>
 
@@ -63,7 +63,7 @@ side a ── 02. barpop 窓
 </div>
 
 <p align="center">
-    <img src="img/barpop.gif" width="560px" alt="barpop popups"/>
+    <img src="img/barpop-pb.gif" width="560px" alt="barpop popups"/>
 </p>
 
 Click a block on the bar and it opens a popup. A single script, `~/.local/bin/barpop` (Python + GTK 3), draws all of them. The data comes from `/proc`, `/sys` and tools like `wpctl`, `iw` and `df`; btop and htop are not needed.
@@ -101,7 +101,7 @@ Click a block on the bar and it opens a popup. A single script, `~/.local/bin/ba
 </details>
 
 <p align="center">
-    <img src="img/barpop.png" width="800px" alt="barpop popups"/>
+    <img src="img/barpop-pb.png" width="800px" alt="barpop popups"/>
 </p>
 <br>
 
@@ -632,4 +632,4 @@ side b ── 04. suckless build お
 
 <div align="center"><sub>end of side b ⋆˚ ༘ ♡ &nbsp; rewind and play again</sub></div>
 
-<img src="img/footer.svg" width="100%" title="Footer">
+<img src="img/footer-onda.svg" width="100%" title="Footer">
