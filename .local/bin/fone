@@ -1,5 +1,5 @@
 #!/bin/bash
-# Conecta o fone Bluetooth e manda o som para ele.
+# Conecta o fone Bluetooth e manda o som para ele. Endereço em ~/.local/share/dispositivos.env (FONE_MAC).
 # Uso: fone            conecta (pareia sozinho se o PC tiver esquecido; fone em modo de pareamento)
 #      fone off        desconecta (o som volta para a saída anterior)
 . "$HOME/.local/share/dispositivos.env" 2>/dev/null

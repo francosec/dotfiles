@@ -443,6 +443,9 @@ class Ranking(ListaBarras):
         self.n = n
 
     def mostrar(self, itens, fmt):
+        # BARPOP_ESCONDER="nome1,nome2": tira esses processos do ranking (útil para prints públicos).
+        esconder = [e for e in os.environ.get('BARPOP_ESCONDER', '').split(',') if e]
+        itens = [i for i in itens if not any(str(i[0]).startswith(e) for e in esconder)]
         maior = max([v for _, v in itens] + [1e-9])
         for i in range(self.n):
             if i < len(itens):
@@ -556,6 +559,8 @@ class Cpu(Pop):
         self.ncpu = os.cpu_count()
         modelo = re.search(r'model name\s*:\s*(.*)', ler('/proc/cpuinfo'))
         self.modelo = re.sub(r'\(R\)|\(TM\)|CPU |@.*', '', modelo.group(1)).strip() if modelo else ''
+        if os.environ.get('BARPOP_PUBLICO'):   # prints públicos: sem o modelo do processador
+            self.modelo = f'{self.ncpu} threads'
         self.graf = Grafico(self.fg, teto=100)
         self.add(painel(self.graf, 'últimos 5 min'))
         self.blocos = self.add(Blocos())
@@ -602,7 +607,7 @@ class Cpu(Pop):
         self.procs_ant = procs
         if dtot > 0:
             um = dtot / self.ncpu
-            itens = sorted(((n, d / um * 100) for n, d in por_nome.items()), key=lambda x: -x[1])[:5]
+            itens = sorted(((n, d / um * 100) for n, d in por_nome.items()), key=lambda x: -x[1])[:8]
             self.top.mostrar(itens, lambda v: f'{v:.0f}%')
 
 
@@ -695,7 +700,7 @@ class Mem(Pop):
             if len(p) == 2 and p[1].isdigit():
                 n, k = rss.get(p[0], (0, 0))
                 rss[p[0]] = (n + 1, k + int(p[1]) * 1024)
-        itens = sorted(rss.items(), key=lambda x: -x[1][1])[:5]
+        itens = sorted(rss.items(), key=lambda x: -x[1][1])[:8]
         self.top.mostrar([(f'{n}' + (f' ×{c}' if c > 1 else ''), b) for n, (c, b) in itens], tam)
 
 

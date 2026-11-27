@@ -1,5 +1,5 @@
 #!/bin/bash
-# Baby Shark em loop, tela cheia, som na caixa Bluetooth a 48%.
+# Baby Shark em loop, tela cheia, som na caixa Bluetooth a 48% (CAIXA_MAC em ~/.local/share/dispositivos.env).
 # Uso: baby-shark [tela3|tela2|direita|esquerda|trocar|parar]   (padrão: tela3 = direita; tela2 = meio).
 #   direita/esquerda: leva o vídeo do mpv que está aberto uma tela para o lado, sem recomeçar.
 #   trocar: alterna entre a tela 2 e a tela 3.

@@ -1,9 +1,12 @@
 #!/bin/sh
 
+# Inverte o scroll dos mouses cujo nome casa com SCROLL_INVERTIDO (regex, em ~/.local/share/dispositivos.env).
+. "$HOME/.local/share/dispositivos.env" 2>/dev/null
+[ -n "$SCROLL_INVERTIDO" ] || exit 0
+
 while true; do
     for id in $(xinput list | awk -v p="$SCROLL_INVERTIDO" '
-    /slave  pointer/ &&
-    $0 ~ p {
+    /slave  pointer/ && $0 ~ p {
         match($0,/id=[0-9]+/)
         print substr($0,RSTART+3,RLENGTH-3)
     }'); do
