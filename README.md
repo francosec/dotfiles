@@ -1,57 +1,109 @@
 <div align="center">
-    <img src="img/raven.png" width="300">
+    <img src="img/toji.gif" width="420">
 </div><br>
 
 <div align="center">
 
-## /home/emnesty/dotfiles
+## /home/arthos/dotfiles
 
 </div>
 
 <div align=center>
-  
-![](https://img.shields.io/github/stars/odrdk/dotfiles?color=FFFFFF&logo=apachespark&logoColor=D9E0EE&style=for-the-badge&labelColor=191c27)
-![](https://img.shields.io/github/last-commit/odrdk/dotfiles?&logo=github&style=for-the-badge&color=FFFFFF&logoColor=D9E0EE&labelColor=191c27)
-![](https://img.shields.io/github/repo-size/odrdk/dotfiles?color=FFFFFF&logo=hackthebox&logoColor=D9E0EE&style=for-the-badge&labelColor=191c27)
+
+![](https://img.shields.io/github/stars/francosec/dotfiles?color=FFFFFF&logo=apachespark&logoColor=D9E0EE&style=for-the-badge&labelColor=191c27)
+![](https://img.shields.io/github/last-commit/francosec/dotfiles?&logo=github&style=for-the-badge&color=FFFFFF&logoColor=D9E0EE&labelColor=191c27)
+![](https://img.shields.io/github/repo-size/francosec/dotfiles?color=FFFFFF&logo=hackthebox&logoColor=D9E0EE&style=for-the-badge&labelColor=191c27)
 
 </div>
 
-<img align="right" src="img/1.png" alt="Rice Preview" width="363px"/>
+<img align="right" src="img/build.png" alt="Rice Preview" width="363px"/>
 
 ```Go
 ❄️                  Setup / DWM                   ❄️
 ---------------------------------------------------
-╭─ Distro          -> Artix Linux
+╭─ Distro          -> Arch Linux
 ├─ Editor          -> NeoVim
-├─ Browser         -> Firefox
+├─ Browser         -> Chromium / Brave
 ├─ Shell           -> zsh
-╰─ Process Viewer  -> btop
- 
-╭─ Music Player    -> cmus
-├─ Compositor      -> picom
+╰─ System Monitor  -> barpop
+
+╭─ Music Player    -> cmus / Spotify
+├─ Compositor      -> picom (glass + blur)
 ├─ Notifications   -> dunst
 ├─ Media Player    -> mpv
 ╰─ File Manager    -> ranger
- 
+
 ╭─ WM              -> dwm
+├─ Bar             -> dwmblocks-async
 ├─ Terminal        -> st
-├─ App Laucher     -> dmenu
+├─ App Launcher    -> dmenu
 ├─ Theme           -> pywal
 ╰─ Font            -> JetBrainsMono NF
 ```
+
 <p align="center">
-    <img src="img/2.png" width="500px" alt="DWM Rice"/>
+    <img src="img/demo.gif" width="800px" alt="DWM build demo"/>
 </p>
+<br>
+
+  **Warning**
+
+  This is my personal Arch Linux setup, running on three monitors (notebook, tela 2 1440p and a tela 3 on a USB adapter). Use it as inspiration: there is no guarantee it will work as-is on your machine.
+
+<br>
+
+<div align=center>
+
+```ocaml
+❄️ barpop 窓
+```
+</div>
+
 <p align="center">
-    <img src="img/3.png" width="500px" alt="DWM Rice"/>
+    <img src="img/barpop.gif" width="560px" alt="barpop popups"/>
 </p>
+
+Click a block on the bar and it opens a popup. A single script, `~/.local/bin/barpop` (Python + GTK 3), draws all of them. The data comes from `/proc`, `/sys` and tools like `wpctl`, `iw` and `df`; btop and htop are not needed.
+
+<details>
+<summary><b>What each popup shows 火</b></summary>
+<br>
+
+| Block | Popup |
+|-------|-------|
+| CPU | 5-minute graph, frequency, load, processes, uptime, per-thread bars and the 5 heaviest processes right now |
+| Temperature | 5-minute graph, every core with its bar, chipset and battery |
+| Memory | 5-minute graph, RAM and swap, cache and the 5 programs using the most |
+| Disk | live read/write graph and space of every partition |
+| Updates | package list (repo + AUR) with the new version, scrollable, and an *Update now* button |
+| Volume / Mic | volume slider, mute button, device picker and a shortcut to the mixer |
+| Network | live download/upload, latency, Wi-Fi signal, local IP and router |
+| VPN | Mullvad state with connect/disconnect, Tailscale and the devices on the tailnet |
+| cmus / Spotify | song, artist, cover, progress and controls |
+| Date | big clock, calendar with week numbers and UTC time |
+
+</details>
+
+<details>
+<summary><b>How it works 水</b></summary>
+<br>
+
+- It opens under the block you clicked. The mouse position is read before GTK loads, so moving the mouse right after the click doesn't throw it off.
+- Click the same block again to close it, or another block to swap. Moving the mouse away also closes it.
+- The background uses the same transparency as `st` (`~/.cache/st-alpha`), so `Ctrl` + `Shift` + `A` / `S` changes both. picom adds blur, shadow, round corners and fade to these popups only (`class_g = 'Barpop'`). With picom off (`Super` + `G`) the background is solid.
+- Background and text colors come from `xrdb`, like `st`. The font size is the GTK default.
+- The CPU, temperature and memory blocks save their last 60 values (5 minutes) to `$XDG_RUNTIME_DIR/barhist/`, so the graphs already have data when the popup opens.
+- The updates block caches the package list. The popup shows the cached list at once and runs `checkupdates` and `yay -Qua` again in the background.
+
+</details>
+
 <p align="center">
-    <img src="img/pywal.gif" width="500px" alt="Pywal"/>
+    <img src="img/barpop.png" width="800px" alt="barpop popups"/>
 </p>
 <br>
 
 <div align=center>
-  
+
 ```ocaml
 ❄️ Installation 魅
 ```
@@ -64,11 +116,11 @@
   Assuming your **AUR Helper** is [yay](https://github.com/Jguer/yay).
 
 ```sh
-yay -S cava slop devour exa tty-clock-git picom-jonaburg-git cmatrix-git pipes.sh checkupdates+aur libnotify wal-telegram-git poppler npm p7zip epub-thumbailer-git python-pdftotext python-pywalfox tesseract-data-eng tesseract-data-por arandr clipmenu zsh playerctl dbus simple-mtpfs dunst feh ffmpeg ffmpegthumbnailer firefox flameshot fzf git gnu-free-fonts go htop imagemagick mpv neofetch neovim noto-fonts noto-fonts-cjk noto-fonts-emoji numlockx obs-studio openssh perl pulseaudio pulsemixer python-pip python-pywal ranger syncthing sxiv telegram-desktop tmux tree ttf-jetbrains-mono-nerd ttf-font-awesome gpick ueberzug redshift unzip vim webkit2gtk xclip yt-dlp zathura zathura-djvu zathura-pdf-mupdf zip xorg-server xorg-xinit libx11 libxinerama libxft base base-devel
+yay -S cava devour exa tty-clock-git picom cmatrix-git pipes.sh npm xdotool xautolock betterlockscreen yad libnotify wal-telegram-git python-pywalfox xsettingsd themix-gui-git pacman-contrib ripgrep fd luarocks v4l2loopback-dkms themix-theme-oomox-git archdroid-icon-theme tesseract-data-eng tesseract-data-por slop arandr polkit-gnome clipmenu zsh openrgb cmus mpd mpc ncmpcpp playerctl dbus simple-mtpfs dunst emacs feh ffmpeg ffmpegthumbnailer firefox flameshot pcmanfm gvfs fzf git gnu-free-fonts go gd btop mullvad-vpn-bin imagemagick mpv neofetch neovim noto-fonts noto-fonts-cjk noto-fonts-emoji numlockx obs-studio openssh perl pulsemixer udiskie keepassxc python-pip python-pywal qalculate-gtk android-tools xarchiver xdg-user-dirs qutebrowser ranger syncthing sxiv telegram-desktop tree ttf-jetbrains-mono-nerd ttf-font-awesome qbittorrent gpick ueberzugpp redshift p7zip unrar unzip epub-thumbnailer-git python-pdftotext poppler xorg-xinput vim webkit2gtk-4.1 xclip yt-dlp zathura zathura-pdf-mupdf zip xorg-server xorg-xinit libx11 libxinerama libxft base base-devel qt5ct qt6ct libreoffice-fresh pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber xorg-xwininfo scrcpy bibata-cursor-theme-bin nodejs cloudflared python python-cryptography sqlite nftables ddcutil net-tools iputils usbutils
 ```
 
 ```sh
-git clone https://github.com/odrdk/dotfiles.git
+git clone https://github.com/francosec/dotfiles.git
 ```
 
   Create [symbolic links](https://www.freecodecamp.org/news/linux-ln-how-to-create-a-symbolic-link-in-linux-example-bash-command/) to the files/directories you need.
@@ -79,35 +131,29 @@ git clone https://github.com/odrdk/dotfiles.git
 <summary><b>Automatic</b></summary>
 <br>
 
-  Install [git](https://github.com/git/git)
+  Install [git](https://github.com/git/git), clone this repo and run the script
 
 ```sh
 sudo pacman -Syu git
-```
-
-  Clone this repo
-
-```sh
-git clone https://github.com/odrdk/dotfiles.git
-```
-
-  Go to folder
-
-```sh
+git clone https://github.com/francosec/dotfiles.git
 cd dotfiles/
-```
-
-  Give permission to the script
-
-```sh
 chmod +x install.sh
-```
-
-  Execute the script
-
-```sh
 ./install.sh
 ```
+
+</details>
+
+<details>
+<summary><b>Fresh Arch with LUKS</b></summary>
+<br>
+
+  `instalar-arch-luks.sh` installs Arch with two LUKS2 volumes (`/boot`, opened by GRUB, and `/`, opened by the initramfs), then runs this build at the end. Run it from the Arch live ISO.
+
+```sh
+bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
+```
+
+  Pass the disk, or set `MODELO_ALVO` to pick it by model. It refuses any disk with an NTFS partition.
 
 </details>
 
@@ -397,7 +443,7 @@ chmod +x install.sh
       </a>
     </td>
     <td>
-      <a href="https://github.com/odrdk/dotfiles/blob/main/.config/suckless/st/patches/patch_column.diff">
+      <a href="https://github.com/francosec/dotfiles/blob/main/.config/suckless/st/patches/patch_column.diff">
         <p title="Invisible content is kept instead of removed when shrinking the width of the st window."><kbd>patch_column</kbd></p>
       </a>
     </td>
@@ -499,61 +545,85 @@ chmod +x install.sh
 <details>
 <summary><b>Keybinds 麗</b></summary><br>
 
-| Keybind                            | Description                                    |
-|------------------------------------|------------------------------------------------|
-| `Super` + `Enter`                  | Create a new terminal.                         |
-| `Super` + `Shift` + `Q`            | Close a window.                                |
-| `Super` + `Shift` + `R`            | Restart DWM.                                   |
-| `Super` + `LeftArrow`, `RightArrow` | Move to another window.                        |
-| `Super` + `M`                      | Monocle layout.                                |
-| `Super` + `T`                      | Tiled layout.                                  |
-| `Super` + `F`                      | Spiral layout.                                 |
-| `Super` + `U`                      | Centered master layout.                        |
-| `Super` + `O`                      | Grid layout.                                   |
-| `Super` + `B`                      | Toggle the top bar.                            |
-| `Super` + `Shift` + 1/5            | Move a window to another tag.                  |
-| `Super` + `1/5`                    | Switch to another tag.                         |
-| `Super` + `I`                      | Increment master.                              |
-| `Super` + `D`                      | Decrement master.                              |
-| `Super` + `H`                      | Move mfact to the left.                        |
-| `Super` + `L`                      | Move mfact to the right.                       |
-| `Super` + `K`                      | Move cfact down.                               |
-| `Super` + `J`                      | Move cfact up.                                 |
-| `Super` + `Space`                  | Toggle last layout.                            |
-| `Super` + `Shift` + Space          | Toggle floating window.                        |
-| `Super` + ``=``                    | Increment gaps.                                |
-| `Super` + ``-``                    | Decrement gaps.                                |
-| `Super` + `Alt` + 0                | Restore gaps.                                  |
-| `Super` + `Shift` + =              | Increment vertical gaps.                       |
-| `Super` + `Shift` + -              | Decrement vertical gaps.                       |
-| `Super` + `Control` + =            | Increment horizontal gaps.                     |
-| `Super` + `Control` + -            | Decrement horizontal gaps.                     |
-| `Super` + `Alt` + ``=``            | Increment inside gaps.                         |
-| `Super` + `Alt` + ``-``            | Decrement inside gaps.                         |
-| `Super` + `F1`                     | Open file manager.                             |
-| `Super` + `F2`                     | Open browser.                                  |
-| `Super` + `F3`                     | Open messaging application.                    |
-| `Super` + `F4`                     | Open music player.                             |
-| `Super` + `F5`                     | Open code editor.                              |
-| `Super` + `F6`                     | Open audio manager.                            |
-| `Super` + `F7`                     | Open screen recorder.                          |
-| `Super` + `F11`                    | Lockscreen.                                    |
-| `Super` + `F12`                    | Open calculator.                               |
-| `Super` + `Shift` + N              | Toggle nightmode.                              |
-| `Super` + `Shift` + E              | Theme selector.                                |
-| `Super` + `Control` + E            | Emoji selector.                                |
-| `Super` + `Shift` + S              | Manage dotfiles.                               |
-| `Super` + `Shift` + Y              | Manage clipboard.                              |
-| `Super` + `PrtSc`                  | Fullscreen screenshot.                         |
-| `PrtSc`                            | Screenshot of the selected area.               |
-| `AudioLowerVolume`                 | Volume control down.                           |
-| `AudioRaiseVolume`                 | Volume control up.                             |
-| `AudioMute`                        | Toggle mute.                                   |
-| `Alt` + `Z`                        | Toggle mute mic.                               |
-| `MonBrightnessUp`                  | Increment brightness.                          |
-| `MonBrightnessDown`                | Decrement brightness.                          |
-| `Super` + `Shift` + `P`            | Power Menu.                                    |
-| `Super` + `P`                      | Open DMENU.                                    |
+**Windows and layouts**
+
+| Keybind                                   | Description                                  |
+|-------------------------------------------|----------------------------------------------|
+| `Super` + `Enter`                         | New terminal.                                |
+| `Super` + `Control` + `Enter`             | New terminal, drawing its size with the mouse.|
+| `Super` + `P`                             | dmenu.                                       |
+| `Super` + `Shift` + `Q`                   | Close window.                                |
+| `Super` + `Shift` + `R`                   | Restart dwm.                                 |
+| `Super` + `Shift` + `P`                   | Power menu.                                  |
+| `Super` + `←` `→`                         | Focus another window.                        |
+| `Super` + `Shift` + `←` `→`               | Move window in the stack.                    |
+| `Super` + `T` / `M` / `F` / `O` / `U`     | Tiled / monocle / spiral / grid / centered master. |
+| `Super` + `Space`                         | Last layout.                                 |
+| `Super` + `Shift` + `Space`               | Toggle floating.                             |
+| `Super` + `S`                             | Toggle sticky.                               |
+| `Super` + `B`                             | Toggle the bar.                              |
+| `Super` + `I` / `D`                       | More / fewer windows in master.              |
+| `Super` + `H` / `L`                       | Shrink / grow master.                        |
+| `Super` + `J` / `K`                       | Grow / shrink window (cfact).                |
+| `Super` + `=` / `-`                       | More / fewer gaps.                           |
+| `Super` + `Alt` + `0`                     | Toggle gaps.                                 |
+| `Alt` + `←` `↑` `→` `↓`                   | Move floating window.                        |
+| `Alt` + `Shift` + `←` `↑` `→` `↓`         | Resize floating window.                      |
+| `Alt` + `Control` + `←` `↑` `→` `↓`       | Send floating window to the edge.            |
+
+**Tags and monitors**
+
+| Keybind                                   | Description                                  |
+|-------------------------------------------|----------------------------------------------|
+| `Super` + `1-5`                           | Go to tag.                                   |
+| `Super` + `Shift` + `1-5`                 | Move window to tag.                          |
+| `Super` + `Control` + `1-5`               | Show tag together with the current one.      |
+| `Super` + `Control` + `Shift` + `1-5`     | Preview tag.                                 |
+| `Super` + `Tab`                           | Last tag.                                    |
+| `Super` + `Control` + `←` `→`             | Focus another monitor.                       |
+| `Super` + `Alt` + `←` `→`                 | Send window to another monitor.              |
+| `Super` + `Shift` + `M`                   | Monitor setup.                               |
+| `Super` + `Alt` + `1-3`                   | Turn monitor 1-3 on/off.                     |
+
+**Scratchpads and apps**
+
+| Keybind                                   | Description                                  |
+|-------------------------------------------|----------------------------------------------|
+| `Super` + `Shift` + `Enter`               | Scratchpad terminal.                         |
+| `Super` + `F1`                            | File manager.                                |
+| `Super` + `F2`                            | Browser.                                     |
+| `Super` + `F3`                            | Telegram.                                    |
+| `Super` + `F4`                            | Music player.                                |
+| `Super` + `F6`                            | Audio mixer.                                 |
+| `Super` + `F7`                            | Screen recorder.                             |
+| `Super` + `F8`                            | System monitor.                              |
+| `Calculator`                              | Calculator.                                  |
+| `Super` + `W`                             | WhatsApp.                                    |
+| `Super` + `,` / `Shift` + `,` / `.`       | Show / hide / remove scratchpad.             |
+| `Super` + `G`                             | Toggle picom.                                |
+| `Super` + `Shift` + `V`                   | Pick VPN location.                           |
+| `Super` + `Shift` + `I`                   | Show keybinds.                               |
+
+**Media, screen and system**
+
+| Keybind                                   | Description                                  |
+|-------------------------------------------|----------------------------------------------|
+| `PrtSc`                                   | Screenshot of an area (copied).              |
+| `Super` + `PrtSc`                         | Full screenshot, saved to `~/Pictures/Prints`.|
+| `Shift` + `PrtSc`                         | OCR: copy the text of an area.               |
+| `AudioRaiseVolume` / `AudioLowerVolume`   | Volume up / down.                            |
+| `AudioMute`                               | Mute.                                        |
+| `AudioPlay` / `AudioNext` / `AudioPrev`   | Play-pause / next / previous.                |
+| `Alt` + `F2` / `F3`                       | Mic volume down / up.                        |
+| `Alt` + `Z`                               | Mute mic.                                    |
+| `Super` + `↑` `↓`                         | Brightness up / down.                        |
+| `Super` + `F11`                           | Lock screen.                                 |
+
+**Terminal (st)**
+
+| Keybind                                   | Description                                  |
+|-------------------------------------------|----------------------------------------------|
+| `Control` + `Shift` + `A` / `S`           | More / less transparent (all `st` and barpop follow). |
 
 </details>
 
