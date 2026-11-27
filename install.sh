@@ -92,18 +92,27 @@ sudo pacman -Sy &> /dev/null
 setup_openrgb_ram_amd
 
 programs=(
-    cava devour exa tty-clock-git picom cmatrix-git pipes.sh npm xdotool xautolock betterlockscreen 
-    yad libnotify wal-telegram-git python-pywalfox xsettingsd themix-gui-git pacman-contrib ripgrep fd luarocks v4l2loopback-dkms
-    themix-theme-oomox-git archdroid-icon-theme tesseract-data-eng tesseract-data-por slop arandr polkit-gnome clipmenu zsh openrgb
-    cmus mpd mpc ncmpcpp playerctl dbus simple-mtpfs dunst emacs feh ffmpeg ffmpegthumbnailer firefox flameshot pcmanfm gvfs
-    fzf git gnu-free-fonts go gd btop mullvad-vpn-bin imagemagick mpv neofetch neovim noto-fonts noto-fonts-cjk noto-fonts-emoji
-    numlockx obs-studio openssh perl pulsemixer udiskie keepassxc python-pip python-pywal qalculate-gtk android-tools xarchiver
-    xdg-user-dirs qutebrowser ranger syncthing sxiv telegram-desktop tree ttf-jetbrains-mono-nerd ttf-font-awesome qbittorrent
-    gpick ueberzugpp redshift p7zip unrar unzip epub-thumbnailer-git python-pdftotext poppler xorg-xinput vim webkit2gtk-4.1 xclip yt-dlp
-    zathura zathura-pdf-mupdf zip xorg-server xorg-xinit libx11 libxinerama libxft base base-devel qt5ct qt6ct libreoffice-fresh
-    pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber xorg-xwininfo scrcpy bibata-cursor-theme-bin
-    # Painel Arthos (Node puro com node:sqlite, túnel, TV via adb/scrcpy, câmera via ffmpeg, scripts Python da Casa)
-    nodejs cloudflared python python-cryptography sqlite nftables ddcutil net-tools iputils usbutils
+    # Hyprland e a sessão Wayland
+    hyprland xdg-desktop-portal-hyprland xorg-xwayland qt6-wayland hyprlock hyprsunset hyprpicker hyprpolkitagent
+    waybar kitty fuzzel awww grim slurp wl-clipboard cliphist wf-recorder dunst udiskie libnotify
+    # barpop, tela de bloqueio e páginas em GTK (layer-shell, session-lock, WebKit)
+    python python-gobject python-pillow gtk3 gtk-layer-shell gtk-session-lock webkit2gtk-4.1 xsecurelock
+    # Terminal, shell e ferramentas
+    zsh neovim git fzf ripgrep fd tree ranger btop neofetch exa eza devour tty-clock-git cmatrix-git pipes.sh cava
+    luarocks npm go perl python-pip pacman-contrib openssh p7zip unrar unzip zip yt-dlp ffmpeg ffmpegthumbnailer imagemagick
+    # Áudio, mídia e música
+    pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber pulsemixer playerctl mpv cmus mpd mpc ncmpcpp
+    # Aparência
+    python-pywal ttf-jetbrains-mono-nerd ttf-font-awesome noto-fonts noto-fonts-cjk noto-fonts-emoji gnu-free-fonts
+    bibata-cursor-theme-bin qt5ct qt6ct
+    # Prints com OCR
+    tesseract tesseract-data-eng tesseract-data-por
+    # Programas do dia a dia
+    brave-bin zathura zathura-pdf-mupdf sxiv pcmanfm gvfs simple-mtpfs xarchiver keepassxc qalculate-gtk gpick
+    telegram-desktop qbittorrent syncthing obs-studio v4l2loopback-dkms scrcpy android-tools libreoffice-fresh
+    mullvad-vpn-bin openrgb xdg-user-dirs dbus base base-devel
+    # Painel (Node puro com node:sqlite, túnel, TV via adb/scrcpy, câmera via ffmpeg, scripts Python)
+    nodejs cloudflared python-cryptography sqlite nftables ddcutil net-tools iputils usbutils
     # Terceiro monitor no adaptador USB (AUR, puxa evdi-dkms-git; o udev sobe o serviço ao plugar)
     smi-usbdisplay
 )
@@ -224,15 +233,6 @@ if [ -d "/sys/class/power_supply" ] && [ "$(ls -A /sys/class/power_supply)" ]; t
 fi
 
     sudo chown "$USER" /sys/class/backlight/intel_backlight/brightness &>/dev/null
-    sudo mkdir -p /etc/X11/xorg.conf.d
-    sudo tee /etc/X11/xorg.conf.d/90-touchpad.conf >/dev/null <<'EOF'
-Section "InputClass"
-    Identifier "touchpad"
-    MatchIsTouchpad "on"
-    Driver "libinput"
-    Option "Tapping" "on"
-EndSection
-EOF
 
 sleep 1 && clear
 
@@ -337,9 +337,9 @@ sleep 1 && clear
 echo "Organizing dotfiles..."
 echo ""
 
-files=".Xresources .xinitrc .zshenv"
+files=".zshenv"
 directories=".config .local .local/bin"
-configs="cava redshift dunst btop xsettingsd xmenu qt5ct qt6ct flameshot kitty alacritty PCSX2 mpv neofetch sxiv wal picom ranger zathura qutebrowser cmus mpd ncmpcpp user-dirs.dirs suckless nvim emacs"
+configs="hypr waybar fuzzel cava dunst btop kitty alacritty mpv neofetch sxiv wal ranger zathura cmus mpd ncmpcpp qt5ct qt6ct user-dirs.dirs nvim trava xkb"
 bkp_dir="$HOME/.bkp_config"
 
 if [ ! -d "$bkp_dir" ]; then
@@ -369,7 +369,6 @@ if [ -d "$HOME/.oh-my-zsh" ]; then
 fi
 
 ln -sf "$HOME/.cache/wal/dunstrc" "$HOME/.config/dunst/dunstrc"
-ln -sf "$HOME/.cache/wal/flameshot.ini" "$HOME/.config/flameshot/flameshot.ini"
 ln -sf "$HOME/.cache/wal/config" "$HOME/.config/cava/config"
 ln -sf "$HOME/.cache/wal/zathurarc" "$HOME/.config/zathura/zathurarc"
 ln -sf "$HOME/.cache/wal/colors-kitty.conf" "$HOME/.config/kitty/colors-kitty.conf"
@@ -377,7 +376,6 @@ ln -sf "$HOME/.cache/wal/alacritty.yml" "$HOME/.config/alacritty/alacritty.yml"
 
 ln -sf "$path/.local/bin/statusbar" "$HOME/.local/bin"
 ln -sf "$path/.local/bin/"* "$HOME/.local/bin"
-ln -sf "$path/.config/xmenu/xmenu.sh" "$HOME/.local/bin/menu"
 
 CURSOR_TARGET="/usr/share/icons/Bibata-Modern-Classic/cursors"
 CURSOR_LINK="/usr/share/icons/default/cursors"
@@ -399,7 +397,7 @@ else
 fi
 
 xdg-mime default pcmanfm.desktop inode/directory
-xdg-settings set default-web-browser firefox.desktop
+xdg-settings set default-web-browser brave-browser.desktop
 xdg-mime default org.pwmt.zathura.desktop application/pdf
 sudo modprobe v4l2loopback video_nr=10 card_label="VirtualCam" exclusive_caps=1
 
@@ -434,108 +432,6 @@ case $answer in
     ;;
 esac
 
-if pgrep -x "Xorg" >/dev/null; then
-  echo "Do you want to harden your Firefox? (y/n)"
-  read answer
-  sleep 1 && clear
-
-  case $answer in
-    [Yy]*)
-      echo "Hardening Firefox..."
-
-      if ! command -v wget >/dev/null; then
-        echo "wget is not installed. Installing..."
-        yay -S wget --noconfirm
-        sleep 1 && clear
-      fi
-
-      if pgrep firefox >/dev/null; then
-        pkill firefox
-      fi
-
-      for profile_dir in "$HOME/.mozilla/firefox/"*.default-release/; do
-        if [ -f "$profile_dir/user.js" ]; then
-          rm "$profile_dir/user.js"
-        fi
-
-        if [ -f "$profile_dir/search.json.mozlz4" ]; then
-          rm "$profile_dir/search.json.mozlz4"
-        fi
-      done
-
-      for file in "$path/.config/firefox/"*; do
-        cp -r "$file" "$profile_dir"
-      done
-
-      ublock_version="1.50.0"
-      wget -O "/tmp/uBlock0_$ublock_version.firefox.signed.xpi" "https://github.com/gorhill/uBlock/releases/download/$ublock_version/uBlock0_$ublock_version.firefox.signed.xpi"
-      setsid -f firefox "/tmp/uBlock0_$ublock_version.firefox.signed.xpi"
-
-      sleep 1 && clear
-      ;;
-    [Nn]*)
-      echo "Skipping..."
-      sleep 1 && clear
-      ;;
-    *)
-      echo "Invalid answer, skipping..."
-      sleep 1 && clear
-      ;;
-  esac
-fi
-
-suckless=("dwm" "st" "dmenu" "dwmblocks-async")
-total=${#suckless[@]}
-count=0
-bar_length=30
-spinner_frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-
-draw_progress_bar() {
-    local progress=$1
-    local total=$2
-    local percent=$(( 100 * progress / total ))
-    local filled=$(( bar_length * percent / 100 ))
-    local empty=$(( bar_length - filled ))
-
-    bar=$(printf "%0.s█" $(seq 1 $filled))
-    bar+=$(printf "%0.s▒" $(seq 1 $empty))
-
-    printf "[%s] %d/%d" "$bar" "$progress" "$total"
-}
-
-echo "Installing suckless programs..."
-
-for program in "${suckless[@]}"; do
-    count=$((count + 1))
-
-    (
-        i=0
-        while true; do
-            printf "\r\033[K"
-            draw_progress_bar "$count" "$total"
-            frame="${spinner_frames[i]}"
-            printf " Installing: %-20s %s" "$program" "$frame"
-            sleep 0.1
-            ((i=(i+1)%${#spinner_frames[@]}))
-        done
-    ) &
-    spinner_pid=$!
-
-    cd "$path/.config/suckless/$program" && sudo make clean install &> /dev/null
-
-    kill $spinner_pid &>/dev/null
-    wait $spinner_pid 2>/dev/null
-
-    printf "\r\033[K"
-    draw_progress_bar "$count" "$total"
-    printf " Installed:  %-20s" "$program"
-done
-
-cd "$path/.config/xmenu" && sudo make install &> /dev/null
-sleep 1 && clear
-
-printf "\nInstallation of suckless programs complete.\n"
-sleep 3 && clear
 
 echo "Running pywal..."
 wallpaper_dir="$HOME/Pictures/wallpapers"
@@ -548,24 +444,15 @@ else
   wallpaper_path="$reserve_wallpaper"
 fi
 
-wal -i "$wallpaper_path" &> /dev/null
-sed -i ~/.Xresources -re '1,1000d'
-cat ~/.cache/wal/colors.Xresources >> ~/.Xresources
+wal -n -i "$wallpaper_path" &> /dev/null   # -n: o papel de parede é do awww, não do wal
 
-if [ -n "$(pgrep Xorg)" ]; then
-  pkill picom & > /dev/null
-  killall dwm &
-  dwmblocks &
-  oomox-cli /opt/oomox/scripted_colors/xresources/xresources-reverse > /dev/null
-  betterlockscreen -u "$wallpaper_path" > /dev/null 2>&1
-  wal-telegram -t
-  pywalfox update
-  killall dunst && dunst &
+if pgrep -x Hyprland >/dev/null; then
+  hyprctl reload > /dev/null
+  pkill -SIGUSR2 -x waybar
+  pkill -x dunst; setsid -f dunst
   sleep 1 && clear
   notify-send "Rice updated!"
 fi
-
-picom &
 
 chmod +x $path/.local/bin
 sleep 1 && clear
@@ -583,4 +470,4 @@ if [ "$openrgb_reboot_required" = true ]; then
 fi
 
 echo "All done!"
-echo "Please log out and log back in for the changes to take effect."
+echo "Log out and log in on tty1: the zsh profile starts Hyprland."

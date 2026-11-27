@@ -8,6 +8,14 @@
 
 </div>
 
+<div align=center>
+
+![](https://img.shields.io/github/stars/francosec/dotfiles?color=e1e1e1&logo=apachespark&logoColor=e1e1e1&style=for-the-badge&labelColor=060606)
+![](https://img.shields.io/github/last-commit/francosec/dotfiles?&logo=github&style=for-the-badge&color=e1e1e1&logoColor=e1e1e1&labelColor=060606)
+![](https://img.shields.io/github/repo-size/francosec/dotfiles?color=e1e1e1&logo=hackthebox&logoColor=e1e1e1&style=for-the-badge&labelColor=060606)
+
+</div>
+
 <div align="center">
 <table>
 <tr>
@@ -23,7 +31,7 @@
 ╰─ monitor     -> barpop
 
 ╭─ music       -> cmus, spotify
-├─ compositor  -> built-in
+├─ compositor  -> hyprland (blur, fades)
 ├─ notify      -> dunst
 ├─ media       -> mpv
 ├─ background  -> cava
@@ -40,13 +48,18 @@
 ```
 
 </td>
+<td>
+<img src="img/shot-hypr-arte.png" alt="nvim dashboard, fetch and clock on Hyprland" width="420px"/><br>
+<img src="img/shot-hypr-codigo.png" alt="nvim editing barpop on Hyprland" width="420px"/>
+</td>
 </tr>
 </table>
 </div>
 
-<div align="center">
-    <img src="img/demo-hypr.gif" width="800px" alt="Hyprland build demo"/>
-</div>
+<p align="center">
+    <img src="img/demo-hypr-gouge.gif" width="800px" alt="Hyprland build demo with cava on three monitors"/>
+</p>
+<br>
 
 
   **warning**
@@ -55,20 +68,49 @@
 
 <br>
 
+<div align=center>
+
+```ocaml
+††† hyprland 時
+```
+</div>
+
+The config is a single Lua file, `.config/hypr/hyprland.lua`, which Hyprland 0.57 reads. It came from dwm, so it behaves like dwm:
+
+- Each monitor has its own workspaces 1–5. `Super + 1–5` switches on the monitor under focus, and Waybar shows the same 1–5 on every screen.
+- The layouts keep the dwm keys: `Super + T` tile, `Super + U` centered master, `Super + F` / `O` dwindle, `Super + Space` toggles the last one.
+- Cava runs behind the windows on every monitor, as a kitty panel on the background layer. `fundo-vigia` listens to Hyprland's event socket and redraws cava and the wallpaper when a monitor is plugged or unplugged.
+- If the main monitor goes to another computer, `fundo-vigia` moves the right monitor next to the laptop so the cursor can still cross.
+- Scripts written for X (`monitores`, `fundo`, `tela-desliga`) check for Hyprland and hand over to their versions in `.local/bin/wayland/`.
+- The lock screen (`Super + F11`) uses `ext-session-lock` through gtk-session-lock. Each monitor gets its own WebKit page, and the password goes through PAM.
+
 <details>
 <summary><b>keybinds 麗</b></summary>
 <br>
 
 | Keybind | Action |
 |---------|--------|
-| `Super + Enter` | Open Kitty |
-| `Super + P` | Open Fuzzel |
-| `Super + 1–5` | Switch workspace on the focused monitor |
+| `Super + Enter` | Kitty |
+| `Super + Shift + Enter` | Scratchpad terminal |
+| `Super + P` | Fuzzel |
+| `Super + Shift + P` | Power menu |
+| `Super + 1–5` | Workspace on the focused monitor |
+| `Super + Tab` | Previous workspace |
 | `Super + Shift + Q` | Close window |
+| `Super + T / U / F / O` | Tile / centered master / dwindle |
+| `Super + M` | Maximize |
+| `Super + Shift + Space` | Float |
+| `Super + H / L` | Shrink / grow master |
+| `Super + Ctrl + ← / →` | Focus monitor |
+| `Super + Alt + ← / →` | Send window to monitor |
+| `Super + Alt + 1 / 2 / 3` | Turn a monitor off and on |
 | `Super + G` | Toggle glass effects |
+| `Super + B` | Toggle bar |
+| `Super + = / -` | Gaps |
 | `Ctrl + Shift + A / S` | More / less transparency |
 | `Print` / `Super + Print` / `Shift + Print` | Copy region / save full screenshot / copy text (OCR) |
 | `Super + Shift + Y` | Clipboard history |
+| `Super + Shift + R` | Reload config |
 | `Super + F11` | Lock screen |
 
 </details>
@@ -84,7 +126,7 @@
     <img src="img/barpop-pb.gif" width="560px" alt="barpop popups"/>
 </p>
 
-Waybar blocks open GTK layer-shell popups through `barpop`. Cava pulses behind the windows.
+Click a block on Waybar and it opens a popup. A single script, `~/.local/bin/barpop` (Python + GTK 3 + gtk-layer-shell), draws all of them. The data comes from `/proc`, `/sys` and tools like `wpctl`, `iw` and `df`; btop and htop are not needed.
 
 <details>
 <summary><b>what each popup shows 火</b></summary>
@@ -134,31 +176,57 @@ Waybar blocks open GTK layer-shell popups through `barpop`. Cava pulses behind t
 <summary><b>manual</b></summary>
 <br>
 
-```sh
-sudo pacman -S --needed hyprland waybar kitty fuzzel awww grim slurp \
-  wl-clipboard cliphist hyprlock hyprsunset hyprpicker hyprpolkitagent \
-  gtk-layer-shell gtk-session-lock webkit2gtk-4.1 gtk3 python-gobject \
-  cava dunst tesseract tesseract-data-eng tesseract-data-por playerctl \
-  pipewire wireplumber python-pywal imagemagick zsh ttf-jetbrains-mono-nerd
-```
-
-From the repository root, link the configuration and scripts you want to use.
+  Assuming your **AUR Helper** is [yay](https://github.com/Jguer/yay).
 
 ```sh
-repo="$(pwd -P)"
-mkdir -p "$HOME/.config" "$HOME/.local/bin"
-for config in hypr waybar fuzzel cava kitty dunst; do
-    ln -sT "$repo/.config/$config" "$HOME/.config/$config"
-done
-for script in wayland hypr menu-energia print-area fundo-wayland cava-fundo clip-historico alpha-terminal trocar-sessao barpop; do
-    ln -sT "$repo/.local/bin/$script" "$HOME/.local/bin/$script"
-done
+yay -S hyprland xdg-desktop-portal-hyprland xorg-xwayland qt6-wayland hyprlock hyprsunset hyprpicker \
+  hyprpolkitagent waybar kitty fuzzel awww grim slurp wl-clipboard cliphist wf-recorder dunst udiskie \
+  python-gobject python-pillow gtk3 gtk-layer-shell gtk-session-lock webkit2gtk-4.1 xsecurelock \
+  zsh neovim ranger btop neofetch cava tty-clock-git cmatrix-git playerctl mpv cmus \
+  pipewire pipewire-pulse wireplumber python-pywal ttf-jetbrains-mono-nerd bibata-cursor-theme-bin \
+  tesseract tesseract-data-eng tesseract-data-por brave-bin
 ```
 
-Start the session with `~/.local/bin/hypr` from a TTY. Adjust outputs in
-`hyprland.lua` and link the remaining shared scripts and configs as needed.
-The custom lock screen also uses `trava-saver` and `auth_trava`.
+```sh
+git clone https://github.com/francosec/dotfiles.git
+```
+
+  Create [symbolic links](https://www.freecodecamp.org/news/linux-ln-how-to-create-a-symbolic-link-in-linux-example-bash-command/) to the files/directories you need. `.local/bin/wayland` has to come before `.local/bin` in `PATH`.
+
+  Log in on tty1 and `.config/zsh/.zprofile` starts Hyprland. Press `t` in the first 2 seconds to stay in the terminal. Set your monitors at the top of `hyprland.lua`.
 
 </details>
+
+<details>
+<summary><b>automatic</b></summary>
+<br>
+
+  Install [git](https://github.com/git/git), clone this repo and run the script. It installs the packages, links the configs (old ones go to `~/.bkp_config`) and runs pywal.
+
+```sh
+sudo pacman -Syu git
+git clone https://github.com/francosec/dotfiles.git
+cd dotfiles/
+chmod +x install.sh
+./install.sh
+```
+
+</details>
+
+<details>
+<summary><b>fresh arch with luks</b></summary>
+<br>
+
+  `instalar-arch-luks.sh` installs Arch with two LUKS2 volumes (`/boot`, opened by GRUB, and `/`, opened by the initramfs), then runs this build at the end. Run it from the Arch live ISO.
+
+```sh
+bash instalar-arch-luks.sh /dev/sdX   # WIPES the whole disk
+```
+
+  Pass the disk, or set `MODELO_ALVO` to pick it by model. It refuses any disk with an NTFS partition.
+
+</details>
+
+<br>
 
 <img src="img/cruzes.svg" width="100%" title="Footer">

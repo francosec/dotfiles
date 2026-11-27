@@ -35,7 +35,7 @@ hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 local base_tela = { ["eDP-1"] = 0, ["HDMI-A-1"] = 10, ["DVI-I-2"] = 20 }
 for saida, b in pairs(base_tela) do
     for i = 1, 5 do
-        hl.workspace_rule({ workspace = tostring(b + i), monitor = saida, persistent = (i == 1), default = (i == 1) })
+        hl.workspace_rule({ workspace = tostring(b + i), monitor = saida, persistent = true, default = (i == 1), default_name = tostring(i) })
     end
 end
 
@@ -80,8 +80,8 @@ hl.config({
         -- Avisos do overlay de depuração desligados: em 27/11 o Hyprland 0.57.2 travou (deadlock)
         -- desenhando o texto de um desses avisos (Debug::COverlay::createWarningTexture).
         disable_watchdog_warning = true, disable_hyprland_guiutils_check = true, disable_xdg_env_checks = true,
-        -- Tela desligada pelo atalho só volta pelo atalho (antes o próprio soltar das teclas a religava).
-        mouse_move_enables_dpms = false, key_press_enables_dpms = false,
+        -- Tecla e mouse acordam as telas (trava/senha). O tela-desliga espera soltar o atalho antes de apagar.
+        mouse_move_enables_dpms = true, key_press_enables_dpms = true,
         focus_on_activate = true,
         -- Se a trava cair, outra (ex.: `hyprlock` via SSH/Termius) pode assumir a tela travada.
         allow_session_lock_restore = true,

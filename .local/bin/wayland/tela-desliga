@@ -6,4 +6,5 @@ case "${2:-alternar}" in
   estado) estado; exit 0 ;;
   ligar) a=on ;; desligar) a=off ;; *) [ "$(estado)" = ligada ] && a=off || a=on ;;
 esac
+[ "$a" = off ] && sleep 0.7   # deixa soltar o Super+Alt+N; senão a própria tecla religa
 hyprctl eval "hl.dispatch(hl.dsp.dpms({ monitor = '$m', action = '$a' }))"

@@ -2,7 +2,7 @@
 # Arch com criptografia total no esquema do vídeo da Belli Labs: /boot e / em volumes LUKS separados.
 #   p1 EFI em /efi (aberta)  p2 /boot LUKS2-PBKDF2, aberto pelo GRUB  p3 / LUKS2-Argon2id, aberto pelo initramfs
 # No boot são duas senhas: a do /boot no GRUB (layout US!) e a do / no initramfs (ABNT2).
-# No fim instala a build dwm (DOTFILES_REPO, com o install.sh dela); DOTFILES_REPO= vazio pula essa parte.
+# No fim instala a build Hyprland (DOTFILES_REPO, com o install.sh dela); DOTFILES_REPO= vazio pula essa parte.
 # Uso, no live ISO: bash instalar-arch-luks.sh            (acha o disco pelo modelo MODELO_ALVO)
 #                   bash instalar-arch-luks.sh /dev/sdX   (APAGA o disco inteiro)
 # Disco com modelo MODELO_PROTEGIDO ou com partição NTFS é recusado: é onde mora o Windows.
@@ -152,7 +152,7 @@ fase_chroot() {
 
 instalar_build() {
   [[ -n $DOTFILES_REPO ]] || return 0
-  echo ">> Build dwm: $DOTFILES_REPO (demora: ~130 pacotes, parte compilada do AUR)"
+  echo ">> Build Hyprland: $DOTFILES_REPO (demora: ~120 pacotes, parte compilada do AUR)"
   # O install.sh da build roda como usuário e chama sudo/yay muitas vezes, com a saída escondida:
   # sem sudo livre ele travaria esperando senha sem mostrar nada. Liberado só durante a instalação.
   echo "$USUARIO ALL=(ALL:ALL) NOPASSWD: ALL" > /etc/sudoers.d/99-instalacao
