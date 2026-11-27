@@ -2,7 +2,7 @@
 # Baby Shark em loop, tela cheia, som na caixa Bluetooth a 48%.
 # Uso: baby-shark [tela3|tela2|direita|esquerda|trocar|parar]   (padrão: tela3 = direita; tela2 = meio).
 #   direita/esquerda: leva o vídeo do mpv que está aberto uma tela para o lado, sem recomeçar.
-#   trocar: alterna entre tela 2 e tela 3.
+#   trocar: alterna entre a tela 2 e a tela 3.
 # Chamado pela Alexa ("Apolo", "Tela direita", "Tela esquerda") via arthos-alexa.
 # mpv + yt-dlp em vez do Brave: sem bloqueio de autoplay, sem limite de telas do Premium, loop nativo.
 # Formato H.264 (avc1): a GPU Intel decodifica; AV1 iria para a CPU e travava.
@@ -11,8 +11,8 @@ URL="https://www.youtube.com/watch?v=_ltUOaMiiQM"
 . "$HOME/.local/share/dispositivos.env" 2>/dev/null
 CAIXA="${CAIXA_MAC:-}"
 SINK="bluez_output.${CAIXA//:/_}.1"
-TELA2="HDMI-1"           # meio
-TELA3="DVI-I-2-2"   # direita
+TELA2="HDMI-1"        # meio
+TELA3="DVI-I-2-2"     # direita
 VOLUME="48%"
 TITULO="baby-shark"
 SOCK="${XDG_RUNTIME_DIR:-/tmp}/baby-shark.sock"
