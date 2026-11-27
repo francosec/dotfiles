@@ -1,9 +1,17 @@
 #!/bin/bash
+# No Hyprland usa a versão Wayland, inclusive quando chamado pela Alexa/painel (fora da sessão).
+if pgrep -x Hyprland >/dev/null 2>&1 && [ -x "$HOME/.local/bin/wayland/$(basename "$0")" ]; then
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+  export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls -t "$XDG_RUNTIME_DIR/hypr" | head -1)}"
+  export PATH="$HOME/.local/bin/wayland:$HOME/.local/bin:$PATH"
+  exec "$HOME/.local/bin/wayland/$(basename "$0")" "$@"
+fi
 # Baby Shark em loop, tela cheia, som na caixa Bluetooth a 48% (CAIXA_MAC em ~/.local/share/dispositivos.env).
 # Uso: baby-shark [tela3|tela2|direita|esquerda|trocar|parar]   (padrão: tela3 = direita; tela2 = meio).
 #   direita/esquerda: leva o vídeo do mpv que está aberto uma tela para o lado, sem recomeçar.
 #   trocar: alterna entre a tela 2 e a tela 3.
-# Chamado pela Alexa ("Apolo", "Tela direita", "Tela esquerda") via arthos-alexa.
+# Chamado pela Alexa ("Apolo", "Tela direita", "Tela esquerda") via serviço de voz.
 # mpv + yt-dlp em vez do Brave: sem bloqueio de autoplay, sem limite de telas do Premium, loop nativo.
 # Formato H.264 (avc1): a GPU Intel decodifica; AV1 iria para a CPU e travava.
 
@@ -106,7 +114,7 @@ elif ! pgrep -f -- "-o $VIDEO" >/dev/null; then
 fi
 
 # Abre sem tela cheia (o mover põe no fim). systemd-run --scope: o mpv fica num grupo próprio e não morre
-# quando o arthos-alexa (que chama este script) é reiniciado.
+# quando o serviço de voz (que chama este script) é reiniciado.
 systemd-run --user --scope --quiet --collect setsid -f mpv --title="$TITULO" --input-ipc-server="$SOCK" --fs-screen-name="$TELA" --screen-name="$TELA" \
     --input-conf=/dev/null --video-rotate=0 \
     --loop-file=inf --volume=100 --hwdec=auto-safe --force-window=immediate \

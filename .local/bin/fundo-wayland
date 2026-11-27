@@ -1,0 +1,6 @@
+#!/bin/sh
+# Wallpaper no Hyprland: o mesmo do pywal, com transição animada (awww).
+img="$(cat "$HOME/.cache/wal/wal" 2>/dev/null)"
+[ -f "$img" ] || exit 0
+for i in 1 2 3 4 5; do awww query >/dev/null 2>&1 && break; sleep 0.5; done
+awww img "$img" --transition-type grow --transition-pos 0.5,0.5 --transition-duration 1.2 --transition-fps 60

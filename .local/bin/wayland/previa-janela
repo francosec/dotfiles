@@ -1,0 +1,96 @@
+#!/bin/sh
+# previa-janela URL...: abre a prévia de frontend no Brave no workspace do terminal, à direita dele.
+# REGRA do usuário (16/11/2026): prévia sempre na mesma tag do terminal, sempre à direita.
+# Como: perfil e classe próprios ("Previa"). No layout master com o terminal na coluna
+# principal à esquerda, a prévia entra como janela secundária à direita.
+# Terminal = endereço em $PREVIA_TERMINAL ou janela ativa. No fim o cursor volta ao terminal.
+[ $# -gt 0 ] || { echo "uso: previa-janela URL [URL...]" >&2; exit 2; }
+
+terminal() {
+    python3 - "${PREVIA_TERMINAL:-${WINDOWID:-}}" <<'PYTHON'
+import json, re, subprocess, sys
+
+def hypr(comando):
+    return json.loads(subprocess.check_output(
+        ["hyprctl", "-j", comando], stderr=subprocess.DEVNULL))
+
+try:
+    endereco = sys.argv[1].removeprefix("address:")
+    janela = None
+    if re.fullmatch(r"0x[0-9a-f]+", endereco):
+        janela = next((c for c in hypr("clients") if c["address"] == endereco), None)
+    if janela is None:
+        janela = hypr("activewindow")
+    endereco = janela["address"]
+    if not re.fullmatch(r"0x[0-9a-f]+", endereco):
+        sys.exit(1)
+    x, y = janela["at"]
+    largura, altura = janela["size"]
+    print(endereco, janela["workspace"]["id"], x + largura // 2, y + altura // 2)
+except (KeyError, ValueError, subprocess.CalledProcessError):
+    sys.exit(1)
+PYTHON
+}
+
+lista() {
+    hyprctl -j clients | python3 -c '
+import json, sys
+for c in json.load(sys.stdin):
+    if c["mapped"] and "Previa" in (c["class"], c["initialClass"]):
+        print(c["address"], c["workspace"]["id"])
+'
+}
+
+alvo=$(terminal)
+if [ -n "$alvo" ]; then
+    read -r term workspace tx ty <<DADOS
+$alvo
+DADOS
+    hyprctl eval "hl.dispatch(hl.dsp.focus({ window = \"address:$term\" }))
+hl.dispatch(hl.dsp.cursor.move({ x = $tx, y = $ty }))
+local ws = hl.get_active_special_workspace() or hl.get_active_workspace()
+if ws and ws.tiled_layout == \"dwindle\" then
+    hl.dispatch(hl.dsp.layout(\"preselect r\"))
+end" >/dev/null
+    sleep 0.2
+    antes=$(lista)
+fi
+
+nav="${PREVIA_NAVEGADOR:-brave}"  # REGRA (21/11/2026): prévias sempre no Brave; PREVIA_NAVEGADOR=chromium volta ao Chromium
+setsid -f "$nav" --user-data-dir="$HOME/.cache/previa-$nav" --class=Previa \
+  --no-first-run --no-default-browser-check --new-window "$@" >/dev/null 2>&1
+[ -n "$alvo" ] || exit 0
+
+nova=
+for _ in $(seq 40); do                      # até 8 s para a janela aparecer
+    nova=$(lista | awk -v antes="$antes" '
+        BEGIN {
+            n = split(antes, linhas, "\n")
+            for (i = 1; i <= n; i++) {
+                split(linhas[i], campos, " ")
+                antiga[campos[1]] = 1
+            }
+        }
+        !($1 in antiga) { nova = $0 }
+        END { if (nova != "") print nova }
+    ')
+    [ -n "$nova" ] && break
+    sleep 0.2
+done
+[ -n "$nova" ] || exit 0
+sleep 0.5
+read -r janela origem <<DADOS
+$nova
+DADOS
+if [ "$origem" != "$workspace" ]; then
+    hyprctl eval "hl.dispatch(hl.dsp.window.move({ window = \"address:$janela\", workspace = $workspace, follow = false }))" >/dev/null
+fi
+
+# Usa o centro atual do terminal, que pode ter encolhido ao abrir a prévia.
+centro=$(PREVIA_TERMINAL=$term terminal)
+if [ "${centro%% *}" = "$term" ]; then
+    read -r term workspace tx ty <<DADOS
+$centro
+DADOS
+fi
+hyprctl eval "hl.dispatch(hl.dsp.cursor.move({ x = $tx, y = $ty }))" >/dev/null

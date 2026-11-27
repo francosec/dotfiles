@@ -1,4 +1,0 @@
-# Bloqueio só manual desde 23/11/2026 (menu do dwm, Alexa, painel): sem xautolock.
-# Aqui fica apenas a regra de a tela não apagar sozinha.
-# Para voltar ao bloqueio após 10 min parado: alwayslock.bak-20261123-manual.
-xset s off; xset dpms 0 0 0

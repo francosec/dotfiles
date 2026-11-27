@@ -1,0 +1,3 @@
+#!/bin/sh
+# Conta-gotas: cor sob o clique vai para a área de transferência.
+c=$(hyprpicker -a -f hex) && notify-send -t 2000 "Cor copiada" "$c"

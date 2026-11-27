@@ -1,0 +1,14 @@
+/* Barra fina de vidro, em preto e branco (cores do pywal em ~/.cache/wal/colors-waybar.css). */
+* { font-family: "JetBrainsMono Nerd Font"; font-size: 10pt; font-weight: bold; min-height: 0; border: none; }
+window#waybar { background: alpha(#060606, 0.55); border-radius: 12px; color: #e1e1e1; border: 1px solid alpha(#e1e1e1, 0.10); }
+#workspaces button { padding: 0 5px; color: #ffffff; background: transparent; font-size: 14pt; }
+#workspaces button.empty { color: alpha(#e1e1e1, 0.40); }
+#workspaces button.active { color: #ffffff; }
+#workspaces button label { font-size: 12.5pt; }
+#workspaces button:hover { background: alpha(#e1e1e1, 0.08); border-radius: 8px; }
+#window { color: alpha(#e1e1e1, 0.6); padding: 0 10px; }
+#clock { padding: 0 12px; }
+#custom-spotify, #custom-vpn, #custom-cpu, #custom-temp, #custom-hdd, #custom-mem,
+#custom-upd, #custom-mic, #custom-vol, #custom-net { padding: 0 8px; color: #e1e1e1; }
+#custom-net { padding-right: 12px; }
+#custom-arch { padding: 0 6px 0 14px; font-size: 12pt; color: #ffffff; }

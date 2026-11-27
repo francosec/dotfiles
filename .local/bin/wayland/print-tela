@@ -1,0 +1,4 @@
+#!/bin/sh
+# Super+Print: todas as telas, salvo em ~/Pictures/Prints.
+d="$HOME/Pictures/Prints"; mkdir -p "$d"; f="$d/print-$(date +%Y%m%d-%H%M%S).png"
+grim "$f" && wl-copy --type image/png < "$f" && notify-send -t 2000 "Print salvo" "$f"

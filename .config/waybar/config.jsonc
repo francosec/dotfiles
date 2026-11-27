@@ -1,0 +1,196 @@
+{
+  "layer": "top",
+  "position": "top",
+  "height": 26,
+  "margin-top": 6,
+  "margin-left": 10,
+  "margin-right": 10,
+  "spacing": 2,
+  "modules-left": [
+    "custom/arch",
+    "hyprland/workspaces",
+    "hyprland/window"
+  ],
+  "modules-center": [
+    "clock"
+  ],
+  "modules-right": [
+    "custom/spotify",
+    "custom/vpn",
+    "custom/cpu",
+    "custom/temp",
+    "custom/hdd",
+    "custom/mem",
+    "custom/upd",
+    "custom/mic",
+    "custom/vol",
+    "custom/net"
+  ],
+  "hyprland/workspaces": {
+    "all-outputs": false,
+    "format": "{icon}",
+    "format-icons": {
+      "default": "●",
+      "empty": "○",
+      "active": "◉",
+      "urgent": "◉"
+    },
+    "persistent-workspaces": {
+      "eDP-1": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "HDMI-A-1": [
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "DVI-I-2": [
+        21,
+        22,
+        23,
+        24,
+        25
+      ]
+    }
+  },
+  "hyprland/window": {
+    "max-length": 48,
+    "separate-outputs": true
+  },
+  "clock": {
+    "format": "{:%d/%m  %H:%M}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_date"
+  },
+  "custom/spotify": {
+    "exec": "s_spotify",
+    "signal": 18,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_spotify",
+    "on-click-middle": "BLOCK_BUTTON=2 s_spotify",
+    "on-click-right": "BLOCK_BUTTON=3 s_spotify",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_spotify",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_spotify",
+    "interval": 1
+  },
+  "custom/vpn": {
+    "exec": "s_vpn",
+    "signal": 21,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_vpn",
+    "on-click-middle": "BLOCK_BUTTON=2 s_vpn",
+    "on-click-right": "BLOCK_BUTTON=3 s_vpn",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_vpn",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_vpn",
+    "interval": 1
+  },
+  "custom/cpu": {
+    "exec": "s_cpu",
+    "signal": 12,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_cpu",
+    "on-click-middle": "BLOCK_BUTTON=2 s_cpu",
+    "on-click-right": "BLOCK_BUTTON=3 s_cpu",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_cpu",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_cpu",
+    "interval": 5
+  },
+  "custom/temp": {
+    "exec": "s_temp",
+    "signal": 25,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_temp",
+    "on-click-middle": "BLOCK_BUTTON=2 s_temp",
+    "on-click-right": "BLOCK_BUTTON=3 s_temp",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_temp",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_temp",
+    "interval": 5
+  },
+  "custom/hdd": {
+    "exec": "s_hdd",
+    "signal": 14,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_hdd",
+    "on-click-middle": "BLOCK_BUTTON=2 s_hdd",
+    "on-click-right": "BLOCK_BUTTON=3 s_hdd",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_hdd",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_hdd",
+    "interval": 1200
+  },
+  "custom/mem": {
+    "exec": "s_mem",
+    "signal": 13,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_mem",
+    "on-click-middle": "BLOCK_BUTTON=2 s_mem",
+    "on-click-right": "BLOCK_BUTTON=3 s_mem",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_mem",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_mem",
+    "interval": 5
+  },
+  "custom/upd": {
+    "exec": "s_upd",
+    "signal": 8,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_upd",
+    "on-click-middle": "BLOCK_BUTTON=2 s_upd",
+    "on-click-right": "BLOCK_BUTTON=3 s_upd",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_upd",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_upd",
+    "interval": 3600
+  },
+  "custom/mic": {
+    "exec": "s_mic",
+    "signal": 9,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_mic",
+    "on-click-middle": "BLOCK_BUTTON=2 s_mic",
+    "on-click-right": "BLOCK_BUTTON=3 s_mic",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_mic",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_mic",
+    "interval": "once"
+  },
+  "custom/vol": {
+    "exec": "s_vol",
+    "signal": 7,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_vol",
+    "on-click-middle": "BLOCK_BUTTON=2 s_vol",
+    "on-click-right": "BLOCK_BUTTON=3 s_vol",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_vol",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_vol",
+    "interval": "once"
+  },
+  "custom/net": {
+    "exec": "s_net",
+    "signal": 15,
+    "format": "{}",
+    "tooltip": false,
+    "on-click": "BLOCK_BUTTON=1 s_net",
+    "on-click-middle": "BLOCK_BUTTON=2 s_net",
+    "on-click-right": "BLOCK_BUTTON=3 s_net",
+    "on-scroll-up": "BLOCK_BUTTON=4 s_net",
+    "on-scroll-down": "BLOCK_BUTTON=5 s_net",
+    "interval": 60
+  },
+  "custom/arch": {
+    "format": "",
+    "tooltip": false,
+    "on-click": "fuzzel"
+  }
+}

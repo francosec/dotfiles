@@ -21,12 +21,40 @@ if len(sys.argv) != 2 or sys.argv[1] not in TIPOS:
 TIPO = sys.argv[1]
 # Lê o mouse já, antes de carregar o GTK (~170 ms): se você clicar e mexer o mouse logo em
 # seguida, o pop-up ainda abre embaixo do bloco clicado.
-try:
+HYPR = os.environ.get('HYPRLAND_INSTANCE_SIGNATURE')   # no Hyprland (Wayland) ou no dwm (X)
+
+
+def hypr_ipc(cmd):
+    """Pergunta ao Hyprland pelo socket (rápido, sem abrir processo). Ex.: 'j/cursorpos'."""
+    import socket
+    caminho = os.path.join(os.environ.get('XDG_RUNTIME_DIR', '/tmp'), 'hypr', HYPR, '.socket.sock')
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as so:
+        so.settimeout(1)
+        so.connect(caminho)
+        so.sendall(cmd.encode())
+        partes = []
+        while True:
+            d = so.recv(65536)
+            if not d:
+                break
+            partes.append(d)
+    return json.loads(b''.join(partes))
+
+
+def mouse_agora():
+    if HYPR:
+        c = hypr_ipc('j/cursorpos')
+        return int(c['x']), int(c['y'])
     _m = dict(l.split('=') for l in subprocess.run(['xdotool', 'getmouselocation', '--shell'],
               capture_output=True, text=True, timeout=1).stdout.split())
-    MOUSE = (int(_m['X']), int(_m['Y']))
+    return int(_m['X']), int(_m['Y'])
+
+
+try:
+    MOUSE = mouse_agora()
 except (OSError, subprocess.SubprocessError, KeyError, ValueError):
     MOUSE = None
+TERM = 'kitty' if HYPR else 'st'
 RUN = os.environ.get('XDG_RUNTIME_DIR', '/tmp')
 PID = os.path.join(RUN, 'barpop.pid')
 
@@ -80,6 +108,14 @@ def solto(cmd):
     """Roda um comando sem esperar e sem prender ao pop-up."""
     subprocess.Popen(['setsid', '-f', 'sh', '-c', cmd],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def abrir_scratch(nome, tecla_x):
+    """Mixer/cmus: no Hyprland chama o scratchpad da config; no dwm aperta o atalho."""
+    if HYPR:
+        solto(f"hyprctl eval 'scratch(\"{nome}\")'")
+    else:
+        solto(f'xdotool key --clearmodifiers {tecla_x}')
 
 
 def sinal_barra(n):
@@ -821,7 +857,7 @@ class Upd(Pop):
         self.rol.set_visible(bool(pacotes))
 
     def atualizar_agora(self):
-        solto('st -e sh -c "atualizar && kill -42 $(pidof dwmblocks) >/dev/null 2>&1 && teclado; exec zsh"')
+        solto(TERM + ' -e sh -c "atualizar && kill -42 $(pidof dwmblocks) >/dev/null 2>&1; exec zsh"')
         sair()
 
 
@@ -849,7 +885,7 @@ class Audio(Pop):
         self.secao('Dispositivo')
         self.devs = self.add(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2))
         self.nomes_devs = None
-        self.botoes(botao('Abrir mixer', lambda: (solto('xdotool key --clearmodifiers Super_L+F6'), sair()),
+        self.botoes(botao('Abrir mixer', lambda: (abrir_scratch('vol', 'Super_L+F6'), sair()),
                           icone=''))
 
     def estado(self):
@@ -940,7 +976,7 @@ class Net(Pop):
         self.blocos = self.add(Blocos())
         self.secao('Conexão')
         self.tab = self.add(Tabela())
-        self.botoes(botao('Gerenciar redes', lambda: (solto('st -e sh -c "nmtui; exec zsh"'), sair()),
+        self.botoes(botao('Gerenciar redes', lambda: (solto(TERM + ' -e sh -c "nmtui; exec zsh"'), sair()),
                           icone=''))
         self.iface = iface_padrao()
         self.b0, self.t0, self.n = bytes_iface(self.iface), time.time(), 0
@@ -953,7 +989,7 @@ class Net(Pop):
 
     def medir_ping(self):
         def f():
-            m = re.search(r'time=([\d.]+)', sh('ping', '-c', '1', '-W', '2', '9.9.9.9', c=True))
+            m = re.search(r'time=([\d.]+)', sh('ping', '-c', '1', '-W', '2', 'dns.quad9.net', c=True))
             return float(m.group(1)) if m else None
 
         def pronto(ms):
@@ -1197,7 +1233,7 @@ class Cmus(Musica):
     icone, titulo, player = '', 'cmus', 'cmus'
 
     def extra(self):
-        self.botoes(botao('Abrir cmus', lambda: (solto('xdotool key --clearmodifiers Super_L+F4'), sair()),
+        self.botoes(botao('Abrir cmus', lambda: (abrir_scratch('music', 'Super_L+F4'), sair()),
                           icone=''))
 
     def enviar(self, c):
@@ -1277,6 +1313,13 @@ def sair(*_):
 
 
 def barra_sob_mouse(mx, my):
+    if HYPR:
+        # Waybar: faixa reservada no topo de cada tela (o Hyprland informa em "reserved").
+        for m in hypr_ipc('j/monitors'):
+            if m['x'] <= mx < m['x'] + m['width'] and m['y'] <= my < m['y'] + m['height']:
+                topo = (m.get('reserved') or [0, 0, 0, 0])[1] or 32
+                return m['x'] + 10, m['y'], m['width'] - 20, topo
+        return None
     out = sh('xwininfo', '-root', '-tree')
     melhor = None
     for m in re.finditer(r'\("dwm" "dwm"\)\s+(\d+)x(\d+)\+(-?\d+)\+(-?\d+)', out):
@@ -1289,7 +1332,20 @@ def barra_sob_mouse(mx, my):
 def main():
     fg = instalar_css()
     pop = CLASSES[TIPO](fg)
-    win = Gtk.Window(type=Gtk.WindowType.POPUP)   # override-redirect: o dwm não mexe na posição
+    if HYPR:
+        # Wayland: camada do Hyprland (namespace "barpop", que tem vidro nas regras da config).
+        gi.require_version('GtkLayerShell', '0.1')
+        from gi.repository import GtkLayerShell
+        win = Gtk.Window()
+        GtkLayerShell.init_for_window(win)
+        GtkLayerShell.set_namespace(win, 'barpop')
+        GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.NONE)
+        GtkLayerShell.set_exclusive_zone(win, -1)
+        for borda in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.LEFT):
+            GtkLayerShell.set_anchor(win, borda, True)
+    else:
+        win = Gtk.Window(type=Gtk.WindowType.POPUP)   # override-redirect: o dwm não mexe na posição
     win.set_title('barpop')
     tela = win.get_screen()
     if tela.get_rgba_visual():
@@ -1319,9 +1375,12 @@ def main():
     pop.atualizar()
 
     ponteiro = Gdk.Display.get_default().get_default_seat().get_pointer()
-    _, mx, my = ponteiro.get_position()
-    if MOUSE:
-        mx, my = MOUSE
+    if HYPR:
+        mx, my = MOUSE or mouse_agora()
+    else:
+        _, mx, my = ponteiro.get_position()
+        if MOUSE:
+            mx, my = MOUSE
     b = barra_sob_mouse(mx, my)
     total = LARGURA + 2 * margem
     if b:
@@ -1331,14 +1390,34 @@ def main():
     else:
         bx, by, bw, bh = mx - total, my - 30, total * 2, 26
         x, y = mx - total // 2, my + 20
-    win.move(x, y)
-    win.show_all()   # o fade de entrada e saída é do picom
+    if HYPR:
+        # Posição relativa à tela do mouse: monitor do GDK com a mesma origem do Hyprland.
+        tela_h = next((m for m in hypr_ipc('j/monitors')
+                       if m['x'] <= mx < m['x'] + m['width'] and m['y'] <= my < m['y'] + m['height']), None)
+        if tela_h:
+            disp = Gdk.Display.get_default()
+            for i in range(disp.get_n_monitors()):
+                g = disp.get_monitor(i).get_geometry()
+                if (g.x, g.y) == (tela_h['x'], tela_h['y']):
+                    GtkLayerShell.set_monitor(win, disp.get_monitor(i))
+                    break
+            GtkLayerShell.set_margin(win, GtkLayerShell.Edge.LEFT, x - tela_h['x'])
+            GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, y - tela_h['y'])
+    else:
+        win.move(x, y)
+    win.show_all()   # o fade de entrada e saída é do compositor (picom no dwm, Hyprland aqui)
 
     # Fecha quando o mouse sai do cartão + faixa da barra acima dele.
     estado = {'dentro': time.time(), 'entrou': False, 'inicio': time.time()}
 
     def vigiar():
-        _, px, py = ponteiro.get_position()
+        if HYPR:
+            try:
+                px, py = mouse_agora()
+            except (OSError, KeyError, ValueError):
+                return True
+        else:
+            _, px, py = ponteiro.get_position()
         w, h = win.get_size()
         dentro = x - 6 <= px < x + w + 6 and by - 4 <= py < y + h + 6
         agora = time.time()

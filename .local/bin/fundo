@@ -1,4 +1,12 @@
 #!/bin/sh
+# No Hyprland usa a versão Wayland, inclusive quando chamado pela Alexa/painel (fora da sessão).
+if pgrep -x Hyprland >/dev/null 2>&1 && [ -x "$HOME/.local/bin/wayland/$(basename "$0")" ]; then
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+  export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls -t "$XDG_RUNTIME_DIR/hypr" | head -1)}"
+  export PATH="$HOME/.local/bin/wayland:$HOME/.local/bin:$PATH"
+  exec "$HOME/.local/bin/wayland/$(basename "$0")" "$@"
+fi
 # Papel de parede da área de trabalho, separado por monitor ou estendido pelos três.
 # Uso: fundo              reaplica no modo salvo (boot, mudança de monitores)
 #      fundo estendido    uma imagem só atravessando todos os monitores

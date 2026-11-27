@@ -1,0 +1,3 @@
+#!/bin/sh
+# xsel no Hyprland: -o lê, o resto copia (área de transferência normal).
+case " $* " in *" -o "*|*" --output "*) exec wl-paste --no-newline ;; *) exec wl-copy ;; esac

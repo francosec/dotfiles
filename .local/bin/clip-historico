@@ -1,0 +1,4 @@
+#!/bin/sh
+# Histórico da área de transferência (Super+Shift+Y): escolhe no fuzzel e copia de novo.
+e=$(cliphist list | fuzzel --dmenu --prompt "copiado › " --lines 15) || exit 0
+printf '%s' "$e" | cliphist decode | wl-copy

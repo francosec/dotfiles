@@ -1,0 +1,160 @@
+#!/bin/bash
+# Baby Shark em loop, tela cheia, som na caixa Bluetooth a 48% (CAIXA_MAC em ~/.local/share/dispositivos.env).
+# Uso: baby-shark [tela3|tela2|direita|esquerda|trocar|parar]   (padrão: tela3 = direita; tela2 = meio).
+#   direita/esquerda: leva o vídeo do mpv que está aberto uma tela para o lado, sem recomeçar.
+#   trocar: alterna entre a tela 2 e a tela 3.
+# Chamado pela Alexa ("Apolo", "Tela direita", "Tela esquerda") via serviço de voz.
+# mpv + yt-dlp em vez do Brave: sem bloqueio de autoplay, sem limite de telas do Premium, loop nativo.
+# Formato H.264 (avc1): a GPU Intel decodifica; AV1 iria para a CPU e travava.
+
+URL="https://www.youtube.com/watch?v=_ltUOaMiiQM"
+. "$HOME/.local/share/dispositivos.env" 2>/dev/null
+CAIXA="${CAIXA_MAC:-}"
+SINK="bluez_output.${CAIXA//:/_}.1"
+TELA2="HDMI-A-1"        # meio
+TELA3="DVI-I-2"     # direita
+VOLUME="48%"
+TITULO="baby-shark"
+SOCK="${XDG_RUNTIME_DIR:-/tmp}/baby-shark.sock"
+VIDEO="$HOME/.cache/baby-shark/video.mp4"   # cópia local (H.264 1080p); apagar para baixar de novo
+
+parar() { pkill -f -- "--title=$TITULO" 2>/dev/null; }
+# Localiza a janela pelo título; para mover qualquer mpv, dá preferência ao Baby Shark.
+janela() {
+    python3 - "$1" "$TITULO" <<'PYTHON'
+import json, subprocess, sys
+
+def hypr(comando):
+    return json.loads(subprocess.check_output(
+        ["hyprctl", "-j", comando], stderr=subprocess.DEVNULL))
+
+modo, titulo = sys.argv[1:]
+try:
+    clientes = hypr("clients")
+    if modo != "todas":
+        visiveis = {m[chave]["id"] for m in hypr("monitors")
+                    for chave in ("activeWorkspace", "specialWorkspace") if m.get(chave)}
+        clientes = [c for c in clientes if c["mapped"] and not c["hidden"]
+                    and c["workspace"]["id"] in visiveis]
+except (subprocess.CalledProcessError, ValueError):
+    sys.exit(1)
+janela = next((c for c in clientes if c["title"].startswith(titulo)), None)
+if janela is None and modo == "mpv":
+    janela = next((c for c in clientes if c["class"].lower() == "mpv"), None)
+if janela:
+    print(janela["address"])
+PYTHON
+}
+# Monitores da esquerda para a direita; o alvo é o vizinho do monitor onde a janela está.
+monitor() {
+    python3 - "$1" "$2" "$TELA2" "$TELA3" <<'PYTHON'
+import json, subprocess, sys
+
+def hypr(comando):
+    return json.loads(subprocess.check_output(
+        ["hyprctl", "-j", comando], stderr=subprocess.DEVNULL))
+
+endereco, direcao, tela2, tela3 = sys.argv[1:]
+try:
+    janela = next(c for c in hypr("clients") if c["address"] == endereco)
+    telas = sorted(hypr("monitors"), key=lambda m: m["x"])
+    i = next(i for i, m in enumerate(telas) if m["id"] == janela["monitor"])
+except (StopIteration, subprocess.CalledProcessError, ValueError):
+    sys.exit(1)
+if direcao == "trocar":
+    print(tela3 if telas[i]["name"] == tela2 else tela2)
+else:
+    vizinho = i + (1 if direcao == "direita" else -1)
+    if 0 <= vizinho < len(telas):
+        print(telas[vizinho]["name"])
+PYTHON
+}
+# Tela cheia pelo socket IPC do Baby Shark (true/false). Outro mpv: dispatcher por endereço.
+telacheia() {
+    if [ "$W" != "$(janela todas)" ]; then
+        local fs
+        fs=$(hyprctl -j clients | python3 -c '
+import json, sys
+print(next((c["fullscreen"] for c in json.load(sys.stdin)
+            if c["address"] == sys.argv[1]), -1))
+' "$W")
+        case "$1:$fs" in
+            true:0|true:1|false:2|false:3)
+                hyprctl eval "hl.dispatch(hl.dsp.window.fullscreen({ window = \"address:$W\", action = \"toggle\" }))" >/dev/null ;;
+        esac
+        return
+    fi
+    python3 -I -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(("{\"command\":[\"set_property\",\"fullscreen\",%s]}\n" % sys.argv[2]).encode())' "$SOCK" "$1" 2>/dev/null
+}
+# Sai da tela cheia antes de mover e volta no fim. O endereço mira a janela sem usar o ponteiro.
+mover() {
+    local W=$1 mx my
+    IFS=, read -r mx my < <(hyprctl cursorpos)
+    telacheia false; sleep 0.5
+    hyprctl eval "hl.dispatch(hl.dsp.window.move({ window = \"address:$W\", monitor = \"$2\" }))" >/dev/null
+    telacheia true
+    if [[ $mx =~ ^[[:space:]]*-?[0-9]+$ && $my =~ ^[[:space:]]*-?[0-9]+$ ]]; then
+        hyprctl eval "hl.dispatch(hl.dsp.cursor.move({ x = $mx, y = $my }))" >/dev/null
+    fi
+}
+
+case "${1:-tela3}" in
+    tela3) TELA=$TELA3 ;;
+    tela2) TELA=$TELA2 ;;
+    parar) parar; exit 0 ;;
+    trocar)
+        w=$(janela visivel); [ -z "$w" ] && { echo "baby-shark: nada tocando" >&2; exit 1; }
+        alvo=$(monitor "$w" trocar)
+        [ -z "$alvo" ] || mover "$w" "$alvo"
+        exit 0 ;;
+    direita|esquerda)
+        w=$(janela mpv); [ -z "$w" ] && { echo "baby-shark: nenhum vídeo no mpv" >&2; exit 1; }
+        alvo=$(monitor "$w" "$1")
+        [ -z "$alvo" ] && { echo "baby-shark: não há tela à $1" >&2; exit 1; }
+        mover "$w" "$alvo"; exit 0 ;;
+    *) echo "uso: baby-shark [tela3|tela2|direita|esquerda|trocar|parar]" >&2; exit 2 ;;
+esac
+
+# Caixa: conecta em segundo plano (até 3 tentativas), vira a saída padrão e puxa o som do mpv para ela.
+# Não segura o vídeo: o mpv já abre na saída atual e muda de saída quando a caixa chega.
+(
+    if ! bluetoothctl info "$CAIXA" 2>/dev/null | grep -q "Connected: yes"; then
+        for _ in 1 2 3; do timeout 15 bluetoothctl connect "$CAIXA" >/dev/null 2>&1 && break; sleep 2; done
+    fi
+    for _ in $(seq 1 10); do pactl list short sinks | grep -q "$SINK" && break; sleep 1; done
+    if pactl list short sinks | grep -q "$SINK"; then
+        pactl set-default-sink "$SINK"
+        for i in $(pactl list short sink-inputs | cut -f1); do pactl move-sink-input "$i" "$SINK" 2>/dev/null; done
+    fi
+    pactl set-sink-volume @DEFAULT_SINK@ "$VOLUME"
+) >/dev/null 2>&1 &
+
+# Pausa o que estiver tocando (YouTube no Brave, Spotify) e troca um Baby Shark antigo por um novo.
+playerctl -a pause 2>/dev/null
+parar
+# Espera a janela antiga sumir; senão a busca abaixo pegaria a janela que está fechando.
+for _ in $(seq 1 20); do [ -n "$(janela todas)" ] || break; sleep 0.25; done
+
+# Vídeo salvo no PC abre na hora; sem ele, usa o YouTube (yt-dlp leva ~9 s) e baixa em segundo plano para a próxima.
+FONTE="$URL"
+if [ -s "$VIDEO" ]; then FONTE="$VIDEO"
+elif ! pgrep -f -- "-o $VIDEO" >/dev/null; then
+    mkdir -p "${VIDEO%/*}"
+    setsid -f yt-dlp -q --no-progress -f 'bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[height<=1080]' \
+        --merge-output-format mp4 -o "$VIDEO" "$URL" >/dev/null 2>&1
+fi
+
+# Abre sem tela cheia (o mover põe no fim). systemd-run --scope: o mpv fica num grupo próprio e não morre
+# quando o serviço de voz (que chama este script) é reiniciado.
+systemd-run --user --scope --quiet --collect setsid -f mpv --title="$TITULO" --input-ipc-server="$SOCK" --fs-screen-name="$TELA" --screen-name="$TELA" \
+    --input-conf=/dev/null --video-rotate=0 \
+    --loop-file=inf --volume=100 --hwdec=auto-safe --force-window=immediate \
+    --ytdl-format='bv*[vcodec^=avc1][height<=1080]+ba/b[height<=1080]' \
+    "$FONTE" >/dev/null 2>&1
+
+for _ in $(seq 1 30); do w=$(janela todas); [ -n "$w" ] && break; sleep 0.5; done
+[ -z "$w" ] && exit 1
+# Espera o Hyprland assentar a posição inicial da janela antes de mover.
+sleep 1.5
+mover "$w" "$TELA"
+exit 0

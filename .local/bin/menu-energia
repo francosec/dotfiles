@@ -1,0 +1,9 @@
+#!/bin/sh
+# Menu de energia (no dwm era o exitdwm, Super+Shift+P).
+e=$(printf '󰌾  bloquear\n󰍃  sair da sessão\n󰜉  reiniciar\n󰐥  desligar\n' | fuzzel --dmenu --prompt "energia › " --lines 4)
+case "$e" in
+  *bloquear) trava || hyprlock ;;
+  *sair*) hyprctl dispatch 'hl.dsp.exit()' ;;
+  *reiniciar) systemctl reboot ;;
+  *desligar) systemctl poweroff ;;
+esac

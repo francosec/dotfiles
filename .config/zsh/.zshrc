@@ -82,3 +82,6 @@ bindkey -r "^S"
 # definir a função de verdade depois, ela substitui este.
 _termius_si_precmd() { : }
 _termius_si_preexec() { : }
+
+# Hyprland: versões Wayland dos comandos (pasta wayland) vêm antes das do X.
+[ -n "$WAYLAND_DISPLAY" ] && export PATH="$HOME/.local/bin/wayland:$PATH"

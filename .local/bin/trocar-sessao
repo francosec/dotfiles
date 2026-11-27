@@ -1,0 +1,11 @@
+#!/bin/sh
+# trocar-sessao hypr|dwm: fecha a sessão atual e abre a outra no próximo login da tty1.
+case "$1" in hypr|dwm) ;; *) echo "uso: trocar-sessao hypr|dwm"; exit 2 ;; esac
+echo "$1" > "$HOME/.cache/sessao-proxima"
+echo "Próxima sessão: $1. Fechando a atual em 3 s; depois faça login na tty1."
+sleep 3
+if [ -n "$WAYLAND_DISPLAY" ] && pgrep -x Hyprland >/dev/null; then
+  hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1 || pkill -x Hyprland
+else
+  pkill -x Xorg
+fi

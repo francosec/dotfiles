@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+# Bloqueio de sessão do Hyprland com páginas do trava-saver.
+import ctypes
+import fcntl
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import threading
+import time
+import warnings
+
+import gi
+
+os.environ['GDK_BACKEND'] = 'wayland'
+RUNTIME = Path(os.environ.setdefault('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}'))
+gi.require_version('Gtk', '3.0')
+gi.require_version('Gdk', '3.0')
+gi.require_version('GtkSessionLock', '0.1')
+from gi.repository import Gdk, GLib, Gtk, GtkSessionLock
+
+BIN = Path.home() / '.local/bin'
+AUTH = '/usr/lib/xsecurelock/auth_trava'
+TECLAS = {
+    Gdk.KEY_Return: b'\r', Gdk.KEY_KP_Enter: b'\r',
+    Gdk.KEY_BackSpace: b'\x7f', Gdk.KEY_Escape: b'\x1b',
+}
+MIDIA = {
+    Gdk.KEY_AudioPlay: ['playerctl', 'play-pause'],
+    Gdk.KEY_AudioPause: ['playerctl', 'pause'],
+    Gdk.KEY_AudioNext: ['playerctl', 'next'],
+    Gdk.KEY_AudioPrev: ['playerctl', 'previous'],
+    Gdk.KEY_AudioRaiseVolume: ['pactl', 'set-sink-volume', '@DEFAULT_SINK@', '+5%'],
+    Gdk.KEY_AudioLowerVolume: ['pactl', 'set-sink-volume', '@DEFAULT_SINK@', '-5%'],
+    Gdk.KEY_AudioMute: ['pactl', 'set-sink-mute', '@DEFAULT_SINK@', 'toggle'],
+    Gdk.KEY_MonBrightnessUp: [BIN / 'brilho', '+10'],
+    Gdk.KEY_MonBrightnessDown: [BIN / 'brilho', '-10'],
+}
+
+
+def erro(msg):
+    print(f'trava-wayland: {msg}', file=sys.stderr)
+
+
+def roda(args, esperar=False):
+    try:
+        if esperar:
+            subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+    except OSError:
+        erro(f'falha ao executar {args[0]}')
+
+
+def atualiza_dados(parar):
+    forcar = []
+    while not parar.is_set():
+        for script in ('trava-nuvens',):   # tempo e notícias saíram do bloqueio (27/11/2026)
+            if parar.is_set():
+                return
+            roda([BIN / script, *(forcar if script != 'trava-nuvens' else [])], esperar=True)
+        parar.wait(600)
+        forcar = ['-f']
+
+
+def traduz(evento):
+    tecla = evento.keyval
+    if tecla in TECLAS:
+        return TECLAS[tecla]
+    if evento.state & Gdk.ModifierType.CONTROL_MASK:
+        return {Gdk.KEY_u: b'\x15', Gdk.KEY_w: b'\x17'}.get(Gdk.keyval_to_lower(tecla))
+    codigo = Gdk.keyval_to_unicode(tecla)
+    if codigo:
+        caractere = chr(codigo)
+        if caractere.isprintable():
+            return caractere.encode('utf-8')
+    return None
+
+
+def bloquear():
+    display = Gdk.Display.get_default()
+    if display is None or not GtkSessionLock.is_supported():
+        erro('compositor sem suporte a ext_session_lock_v1')
+        return 1
+
+    saver = BIN / 'trava-saver'
+    codigo = compile(saver.read_bytes(), str(saver), 'exec')
+    aviso = RUNTIME / 'trava-destravar'
+    ambiente = dict(os.environ, XSECURELOCK_AUTHPROTO='authproto_pam',
+                    XSECURELOCK_PAM_SERVICE='system-local-login', XSECURELOCK_AUTH_TIMEOUT='60')
+    ambiente.pop('TRAVA_DEBUG', None)
+
+    loop = GLib.MainLoop()
+    lock = GtkSessionLock.prepare_lock()
+    ativo, saida = False, 1
+    auth = None
+    janelas = []
+    parar = threading.Event()
+
+    def encerra(codigo_saida):
+        nonlocal ativo, saida
+        ativo, saida = False, codigo_saida
+        loop.quit()
+
+    def destrava():
+        if ativo:
+            lock.unlock_and_destroy()
+            # Round-trip: compositor processou o pedido de destrave.
+            display.sync()
+            encerra(0)
+
+    def confirma(_lock):
+        nonlocal ativo
+        ativo = True
+        # Painel e Alexa só veem a trava depois da confirmação.
+        if ctypes.CDLL(None).prctl(15, ctypes.c_char_p(b'trava-wayland'), 0, 0, 0) != 0:
+            erro('falha ao nomear o processo')
+
+    def terminou(_lock):
+        lock.destroy()
+        erro('compositor recusou ou encerrou o bloqueio')
+        encerra(1)
+
+    def remoto(*_):
+        if ativo:
+            try:
+                idade = time.time() - aviso.stat().st_mtime
+                aviso.unlink()
+            except OSError:
+                return True
+            if 0 <= idade <= 20:
+                destrava()
+        return True
+
+    def encerra_sinal(*_):
+        encerra(1)
+        return False
+
+    def confere_auth():
+        nonlocal auth
+        if auth is not None and (status := auth.poll()) is not None:
+            auth.stdin.close()
+            auth = None
+            if status == 0:
+                destrava()
+        return True
+
+    def teclado(_janela, evento):
+        if not ativo:
+            return True
+        if evento.keyval in MIDIA:
+            roda(MIDIA[evento.keyval])
+            return True
+        dado = traduz(evento)
+        if dado is None:
+            return True
+        confere_auth()
+        if not ativo:
+            return True
+        if auth is None:
+            try:
+                abre_auth()
+            except OSError:
+                erro('falha ao iniciar auth_trava')
+                return True
+        try:
+            os.write(auth.stdin.fileno(), dado)
+        except (BrokenPipeError, BlockingIOError):
+            pass
+        return True
+
+    def abre_auth():
+        nonlocal auth
+        auth = subprocess.Popen([AUTH], stdin=subprocess.PIPE, env=ambiente,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.set_blocking(auth.stdin.fileno(), False)
+
+    lock.connect('locked', confirma)
+    lock.connect('finished', terminou)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', DeprecationWarning)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, remoto)
+        GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGTERM, encerra_sinal)
+        GLib.unix_signal_add(GLib.PRIORITY_HIGH, signal.SIGINT, encerra_sinal)
+    GLib.timeout_add(50, confere_auth)
+
+    roda([BIN / 'trava-fotos'], esperar=True)
+    threading.Thread(target=atualiza_dados, args=(parar,), daemon=True).start()
+    lock.lock_lock()
+    try:
+        for i in range(display.get_n_monitors()):
+            monitor = display.get_monitor(i)
+            geo = monitor.get_geometry()
+            largura = geo.width * monitor.get_scale_factor()
+            janela = Gtk.Window()
+            janela.get_style_context().add_class('trava-preta')
+            css = Gtk.CssProvider()
+            css.load_from_data(b'.trava-preta { background-color: black; }')
+            janela.get_style_context().add_provider(css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            janela.connect('key-press-event', teclado)
+            janela.connect('delete-event', lambda *_: True)
+            lock.new_surface(janela, monitor)
+            janelas.append(janela)
+            if largura in (2560, 1920):
+                ns = {'__file__': str(saver), 'HOSPEDE': {
+                    'janela': janela, 'largura': geo.width, 'altura': geo.height,
+                    'so_player': largura == 1920,
+                }}
+                try:
+                    exec(codigo, ns)
+                except Exception as exc:
+                    erro(f'falha na página da tela {largura} ({type(exc).__name__})')
+            janela.show_all()
+        loop.run()
+    finally:
+        parar.set()
+        if auth is not None:
+            auth.stdin.close()
+            auth.terminate()
+            auth.wait()
+    if saida == 0:
+        roda([BIN / 'fundo-wayland'])
+    return saida
+
+
+def main():
+    with (RUNTIME / 'trava-wayland.lock').open('a') as arquivo:
+        try:
+            fcntl.flock(arquivo, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0
+        return bloquear()
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except (OSError, SyntaxError) as exc:
+        erro(str(exc))
+        sys.exit(1)

@@ -1,0 +1,12 @@
+#!/bin/sh
+# xclip no Hyprland: repassa para wl-copy / wl-paste (scripts antigos continuam funcionando).
+saida=0; primaria=""; tipo=""
+while [ $# -gt 0 ]; do case "$1" in
+  -o|-out) saida=1 ;;
+  -selection|-sel) [ "$2" = primary ] && primaria="--primary"; shift ;;
+  -t|-target) tipo="$2"; shift ;;
+  -i|-in|-r|-rmlastnl|-quiet|-silent|-f|-filter|-l|-loops) ;;
+  *) [ -f "$1" ] && exec wl-copy $primaria ${tipo:+--type "$tipo"} < "$1" ;;
+esac; shift; done
+if [ $saida = 1 ]; then exec wl-paste --no-newline $primaria ${tipo:+--type "$tipo"}
+else exec wl-copy $primaria ${tipo:+--type "$tipo"}; fi

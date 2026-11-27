@@ -1,9 +1,0 @@
-if ! pgrep -x xautolock >/dev/null; then
-    # A tela não apaga sozinha (nem bloqueada): só por comando. O bloqueio automático mostra os painéis.
-    xset s off; xset dpms 0 0 0
-    xautolock -detectsleep -time 10 \
-        -locker "$HOME/.local/bin/trava-auto" \
-        -notify 15 \
-        -notifier "sh -c 'playerctl -a status 2>/dev/null | grep -qx Playing || notify-send \"Bloqueio\" \"A tela bloqueia em 15 s. Mexa no mouse para cancelar.\"'" &
-    # trava-auto: não bloqueia com vídeo/música tocando (espera o player parar + 1 min sem mexer)
-fi

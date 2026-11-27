@@ -1,0 +1,5 @@
+#!/bin/sh
+# Abre a sessão do Hyprland (rodar na tty1, com o dwm fechado). O dwm continua disponível com `startx`.
+[ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ] && { echo "Saia do dwm antes (Super+Shift+P) e rode 'hypr' na tty1."; exit 1; }
+export PATH="$HOME/.local/bin/wayland:$PATH"
+exec ssh-agent start-hyprland

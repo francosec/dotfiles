@@ -11,7 +11,7 @@
     window.Date = class extends D { constructor(...a) { a.length ? super(...a) : super(D.now() + delta); } static now() { return D.now() + delta; } }; }
 </script>
 <!-- Cores do pywal (--background, --foreground, --color0..15). -->
-<link rel="stylesheet" href="file:///home/arthos/.cache/wal/colors.css">
+<link rel="stylesheet" href="../../.cache/wal/colors.css">
 <style>
   :root {
     --fg: var(--foreground, #e2e2e2);
@@ -27,7 +27,7 @@
     font-family: "Adwaita Sans", "Inter", system-ui, sans-serif; cursor: none; -webkit-font-smoothing: antialiased; }
 
   /* Fundo: wallpaper desfocado (lockwall) com zoom lento; só transform, barato para a GPU. */
-  .fundo { position: fixed; inset: -3%; background: var(--bg) var(--img-fundo, url("file:///home/arthos/.cache/trava-fundo.jpg")) center / cover;
+  .fundo { position: fixed; inset: -3%; background: var(--bg) var(--img-fundo, url("../../.cache/trava-fundo.jpg")) center / cover;
     animation: respirar 48s ease-in-out infinite alternate; will-change: transform; }
   .vinheta { position: fixed; inset: 0; background: radial-gradient(ellipse at 50% 45%, transparent 30%, rgb(0 0 0 / .6) 100%); }
   @keyframes respirar { from { transform: scale(1); } to { transform: scale(1.06) translate(-1%, .6%); } }
@@ -376,6 +376,7 @@
   .pausado, .pausado * { animation-play-state: paused !important; }
   .previa .surge, .previa .astro { animation: none; opacity: 1; }
 </style>
+<style>/* 27/11/2026: painel do tempo retirado do bloqueio */ #clima,#dias,#chip-ceu{display:none!important}</style>
 </head>
 <body>
 <div class="fundo"></div><div class="tom"></div><div class="ambiente" id="ambiente"></div><div class="ceu" id="ceu"></div><div class="vinheta"></div>
@@ -430,11 +431,11 @@
     <div class="aviso-caps">⇪ Caps Lock ativado</div>
   </div>
 </div>
-<script src="file:///home/arthos/.cache/trava-clima.js"></script>
-<script src="file:///home/arthos/.cache/trava-radar.js"></script>
-<script src="file:///home/arthos/.cache/trava-fotos.js"></script>
+<script src="../../.cache/trava-clima.js"></script>
+<script src="../../.cache/trava-radar.js"></script>
+<script src="../../.cache/trava-fotos.js"></script>
 <script>window.CEU_GEO = { horizonte: 10, topo: 1.6, abaixo: 1.6 };   // céu em faixa no alto: não cruza foto nem textos</script>
-<script src="file:///home/arthos/.local/share/trava-local.js"></script>   <!-- nome da saudação, fora do git -->
+<script src="../../.local/share/trava-local.js"></script>   <!-- nome da saudação, fora do git -->
 <script src="ceu.js"></script>
 <script src="tempo.js"></script>
 <script>
@@ -538,7 +539,6 @@
   relogio(); setTimeout(() => { relogio(); setInterval(relogio, 1000); }, 1000 - new Date().getMilliseconds() + 5);
 
   // ── Tempo (tempo() roda de novo quando chegam dados novos: o bloqueio pode durar horas)
-  const C = window.CLIMA;
   let codAmbiente = null;
   let chuvaAmbiente = null;
   function tempo(primeira) {
@@ -564,7 +564,7 @@
   // Relê os arquivos de dados a cada minuto (nunca com o campo de senha aberto).
   if (C) {
     const marca = () => `${window.CLIMA?.atualizado}|${window.RADAR?.quadros?.at(-1)?.t}`; let vista = marca();
-    const reler = arq => new Promise(ok => { const s = document.createElement('script'); s.src = `file:///home/arthos/.cache/${arq}?${Date.now()}`;
+    const reler = arq => new Promise(ok => { const s = document.createElement('script'); s.src = `../../.cache/${arq}?${Date.now()}`;
       s.onload = s.onerror = () => { s.remove(); ok(); }; document.head.append(s); });
     setInterval(async () => {
       if (document.body.classList.contains('senha-aberta')) return;
@@ -574,8 +574,12 @@
   }
 
   // ── Céu: recalcula a cada 5 min (o sol anda ~1,25° nesse tempo).
-  const LAT = C?.lat ?? -3.72, LON = C?.lon ?? -38.52;
-  const ceu = () => window.desenharCeu?.(LAT, LON, document.getElementById('ceu'), document.getElementById('chip-ceu'), document.getElementById('saudacao'));
+  const ceu = () => {
+    const {lat, lon} = window.CLIMA ?? {};
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      window.desenharCeu?.(lat, lon, document.getElementById('ceu'), document.getElementById('chip-ceu'), document.getElementById('saudacao'));
+    }
+  };
   ceu(); setInterval(ceu, 300000);
 
   // ── Senha: estado vem do módulo auth_trava (via trava-saver). A página nunca vê a senha,

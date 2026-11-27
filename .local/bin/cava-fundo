@@ -1,0 +1,5 @@
+#!/bin/sh
+# Cava em tela cheia atrás das janelas (camada de fundo do kitty), na tela principal.
+exec kitty +kitten panel --edge=background --output-name=HDMI-A-1 \
+  -o background_opacity=0 -o font_size=10 --class cava-fundo \
+  cava -p "$HOME/.config/cava/config-fundo"

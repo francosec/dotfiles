@@ -1,4 +1,12 @@
 #!/bin/sh
+# No Hyprland usa a versão Wayland, inclusive quando chamado pela Alexa/painel (fora da sessão).
+if pgrep -x Hyprland >/dev/null 2>&1 && [ -x "$HOME/.local/bin/wayland/$(basename "$0")" ]; then
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+  export HYPRLAND_INSTANCE_SIGNATURE="${HYPRLAND_INSTANCE_SIGNATURE:-$(ls -t "$XDG_RUNTIME_DIR/hypr" | head -1)}"
+  export PATH="$HOME/.local/bin/wayland:$HOME/.local/bin:$PATH"
+  exec "$HOME/.local/bin/wayland/$(basename "$0")" "$@"
+fi
 # Telas lado a lado: notebook (eDP/LVDS) à esquerda, o maior monitor externo no centro como principal,
 # os demais à direita (ex.: tela 3 no adaptador USB, que aparece como DVI-I-x-x). Centraliza na vertical.
 # Em VM: 1920x1080 na primeira saída. Rode de novo depois de plugar ou tirar um monitor.

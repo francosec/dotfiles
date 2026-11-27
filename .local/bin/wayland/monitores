@@ -1,0 +1,3 @@
+#!/bin/sh
+# monitores no Hyprland: as telas vêm da config (hyprland.lua); reaplica e refaz o fundo.
+hyprctl reload >/dev/null && fundo-wayland

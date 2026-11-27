@@ -1,0 +1,7 @@
+#!/bin/sh
+# alpha-terminal +0.05|-0.05: muda a transparência de TODOS os kittys e grava em ~/.cache/st-alpha
+# (o barpop acompanha esse arquivo, como fazia com o st).
+f="$HOME/.cache/st-alpha"
+a=$(python3 -c "import sys; a=float(open('$f').read()) if __import__('os').path.exists('$f') else 0.78; print(f'{min(1,max(0,a+float(sys.argv[1]))):.2f}')" "${1:-0}")
+echo "$a" > "$f.t" && mv "$f.t" "$f"
+for s in /tmp/kitty-sock-*; do [ -S "$s" ] && kitty @ --to "unix:$s" set-background-opacity --all "$a" >/dev/null 2>&1; done

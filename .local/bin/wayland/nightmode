@@ -1,0 +1,4 @@
+#!/bin/sh
+# Modo noturno: liga/desliga o hyprsunset (tela mais quente, 4000 K).
+if pgrep -x hyprsunset >/dev/null; then pkill -x hyprsunset; notify-send -t 1500 "Modo noturno desligado"
+else setsid -f hyprsunset -t 4000 >/dev/null 2>&1; notify-send -t 1500 "Modo noturno ligado"; fi
