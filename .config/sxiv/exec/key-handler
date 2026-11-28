@@ -16,6 +16,23 @@ while read file
 do
   case "$1" in
   "w")
+    if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ]; then
+      # Wayland: wal cannot set the image itself; fundo applies it with awww.
+      # -s keeps color escapes out of open terminals (they garble the cava panel).
+      wal -n -q -s -i "$file" || { notify-send "sxiv" "pywal falhou"; exit 1; }
+      fundo
+      sed -i ~/.Xresources -re '1,1000d'
+      cat ~/.cache/wal/colors.Xresources >> ~/.Xresources
+      hyprctl reload >/dev/null
+      pkill -USR2 -x waybar
+      cava-fundo
+      pkill -x dunst; systemctl --user restart dunst
+      timeout 10 pywalfox update >/dev/null 2>&1 &
+      wal-telegram -t >/dev/null 2>&1 &
+      pkill -x sxiv
+      notify-send "Papel de parede" "$(basename "$file")"
+      exit 0
+    fi
     wal -i "$file"
     sed -i ~/.Xresources -re '1,1000d'
     cat ~/.cache/wal/colors.Xresources >> ~/.Xresources
